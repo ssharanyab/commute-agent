@@ -25,8 +25,13 @@ USER_TEXT = (
 
 
 def _is_live_maps_key() -> bool:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+    except Exception:
+        pass
     api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
-    return bool(api_key and api_key != "your_key_here")
+    return bool(api_key and api_key not in {"", "your_key_here", "changeme"})
 
 
 def print_banner(title: str) -> None:

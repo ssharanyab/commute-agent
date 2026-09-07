@@ -69,3 +69,22 @@ Rules:
 - Distinguish live Maps data, historical ML, estimated adapter fields, and missing data.
 - Keep the explanation concise and grounded in the provided JSON only.
 """
+
+REPLAN_EXPLANATION_INSTRUCTION = """Explain a deterministic commute REPLAN for the user.
+
+You are given:
+- initial PlannerResult (before)
+- updated PlannerResult (after)
+- ContextChange
+- whether the recommended route_id changed
+
+The deterministic evaluator is authoritative. You may NOT choose or override routes.
+
+Rules:
+- Explain WHY the recommendation stayed the same or changed using only provided JSON.
+- If context_source is "simulated", say the context change is simulated/demo — not live Maps.
+- If context_source is "live", say live context/refresh was used.
+- Distinguish live Maps values, heuristic estimates, and simulated overlays.
+- Do not invent traffic, weather, disruptions, times, costs, or routes.
+- Keep the explanation concise.
+"""

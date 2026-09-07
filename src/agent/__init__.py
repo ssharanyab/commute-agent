@@ -16,6 +16,7 @@ from src.agent.planner import (
     parse_intent_from_text,
     run_commute_agent,
 )
+from src.agent.replan import run_adaptive_replan
 
 __all__ = [
     "AgentCommuteRequest",
@@ -26,4 +27,5 @@ __all__ = [
     "build_adk_agent",
     "parse_intent_from_text",
     "run_commute_agent",
+    "run_adaptive_replan",
 ]

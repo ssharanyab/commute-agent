@@ -177,6 +177,53 @@ ADAPTERS = {
 }
 
 
+def field_provenance(mode: TravelMode) -> Dict[str, str]:
+    """
+    Declare which RouteCandidate fields are live Maps data vs heuristic.
+
+    Values: "live" | "heuristic" | "n/a"
+    Does not invent Maps values — documents adapter policy only.
+    """
+    if mode == TravelMode.DRIVE:
+        return {
+            "travel_time_minutes": "live",
+            "distance_meters": "live",
+            "has_traffic_data": "live",
+            "congestion_score": "heuristic",
+            "reliability_score": "heuristic",
+            "disruption_risk": "heuristic",
+            "cost": "heuristic",
+            "walking_minutes": "n/a",
+            "transfers": "n/a",
+            "data_source": "google_maps_routes",
+        }
+    if mode == TravelMode.TRANSIT:
+        return {
+            "travel_time_minutes": "live",
+            "distance_meters": "live",
+            "walking_minutes": "live",
+            "transfers": "live",
+            "transit_legs": "live",
+            "congestion_score": "heuristic",
+            "reliability_score": "heuristic",
+            "disruption_risk": "heuristic",
+            "cost": "heuristic",
+            "data_source": "google_maps_routes",
+        }
+    # WALK
+    return {
+        "travel_time_minutes": "live",
+        "distance_meters": "live",
+        "walking_minutes": "live",
+        "cost": "heuristic",  # Maps does not price walking; adapter sets 0.0 explicitly
+        "congestion_score": "heuristic",
+        "reliability_score": "heuristic",
+        "disruption_risk": "heuristic",
+        "transfers": "n/a",
+        "data_source": "google_maps_routes",
+    }
+
+
 def adapt_maps_response(response: MapsRouteResponse) -> RouteCandidate:
     """Dispatch a MapsRouteResponse to the correct mode adapter.
 

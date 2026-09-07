@@ -10,11 +10,9 @@ Security:
 """
 
 import os
-import time
-import hashlib
 import logging
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 
@@ -48,8 +46,14 @@ TRANSIT_FIELD_MASK = (
     "routes.description,"
     "routes.legs.duration,"
     "routes.legs.distanceMeters,"
-    "routes.legs.steps"
+    "routes.legs.steps.travelMode,"
+    "routes.legs.steps.staticDuration,"
+    "routes.legs.steps.distanceMeters,"
+    "routes.legs.steps.navigationInstruction,"
+    "routes.legs.steps.transitDetails"
 )
+
+PLACEHOLDER_KEYS = {"", "your_key_here", "changeme"}
 
 
 class MapsAPIError(Exception):
@@ -69,6 +73,52 @@ class NoRoutesFoundError(MapsAPIError):
     pass
 
 
+def _maybe_load_dotenv() -> None:
+    """Load .env into process env if Maps key is unset. Never logs secrets."""
+    existing = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    if existing and existing not in PLACEHOLDER_KEYS:
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+    except Exception:
+        pass
+
+
+def _normalize_departure_time(departure_time: Optional[str]) -> str:
+    """
+    Return an RFC3339 UTC timestamp acceptable to Routes API TRAFFIC_AWARE.
+
+    Timezone rules (Bengaluru commute MVP):
+    - Explicit Z / offset → convert to UTC.
+    - Naive ISO (no offset) → interpret as Asia/Kolkata (IST).
+    Past / empty / invalid timestamps are clamped to now + 60 seconds
+    (Routes API requires a strictly future departureTime).
+    """
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(timezone.utc)
+    future_floor = now + timedelta(seconds=60)
+
+    def _clamp_future() -> str:
+        return future_floor.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if not departure_time or not str(departure_time).strip():
+        return _clamp_future()
+    raw = str(departure_time).strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        utc = parsed.astimezone(timezone.utc)
+        # Treat "now" / near-past the same as past — Maps rejects non-future.
+        if utc < future_floor:
+            return _clamp_future()
+        return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return _clamp_future()
+
+
 class MapsClient:
     """Lightweight HTTP client for the Google Maps Routes API v2.
 
@@ -76,14 +126,17 @@ class MapsClient:
     and structured response parsing.
     """
 
-    def __init__(self, api_key: Optional[str] = None, timeout_seconds: int = 10):
-        raw_key = api_key or os.environ.get("GOOGLE_MAPS_API_KEY", "")
-        if not raw_key or raw_key.strip() == "your_key_here":
+    def __init__(self, api_key: Optional[str] = None, timeout_seconds: int = 15):
+        if api_key is None:
+            _maybe_load_dotenv()
+        raw_key = (api_key if api_key is not None else os.environ.get("GOOGLE_MAPS_API_KEY", ""))
+        raw_key = (raw_key or "").strip()
+        if not raw_key or raw_key in PLACEHOLDER_KEYS:
             raise MissingAPIKeyError(
                 "GOOGLE_MAPS_API_KEY environment variable is not set. "
                 "Copy .env.example to .env and provide a valid key."
             )
-        self._api_key = raw_key.strip()
+        self._api_key = raw_key
         self._timeout = timeout_seconds
 
     def _safe_headers(self) -> Dict[str, str]:
@@ -111,7 +164,7 @@ class MapsClient:
         """Parse Maps API duration string '123s' to int seconds."""
         if not duration_str:
             return 0
-        return int(duration_str.rstrip("s"))
+        return int(str(duration_str).rstrip("s"))
 
     def _parse_transit_legs(self, legs: List[Dict]) -> Tuple[int, int, int]:
         """
@@ -125,47 +178,82 @@ class MapsClient:
 
         for leg in legs:
             for step in leg.get("steps", []):
-                nav_instruction = step.get("navigationInstruction", {})
                 if step.get("transitDetails"):
                     transit_count += 1
                 if step.get("travelMode") == "WALK":
-                    walking_seconds += self._parse_duration_seconds(step.get("staticDuration"))
+                    walking_seconds += self._parse_duration_seconds(
+                        step.get("staticDuration") or step.get("duration")
+                    )
 
         transfers = max(0, transit_count - 1)
         return transit_count, transfers, walking_seconds
+
+    def _extract_transit_summary(self, legs: List[Dict]) -> Optional[str]:
+        """Build a short live transit summary from step transitDetails (if present)."""
+        parts: List[str] = []
+        for leg in legs:
+            for step in leg.get("steps", []):
+                details = step.get("transitDetails") or {}
+                line = (details.get("transitLine") or {})
+                name = line.get("nameShort") or line.get("name")
+                vehicle = ((line.get("vehicle") or {}).get("type"))
+                if name and vehicle:
+                    parts.append(f"{vehicle}:{name}")
+                elif name:
+                    parts.append(str(name))
+                elif vehicle:
+                    parts.append(str(vehicle))
+        if not parts:
+            return None
+        seen = set()
+        unique = []
+        for p in parts:
+            if p not in seen:
+                seen.add(p)
+                unique.append(p)
+        return " + ".join(unique)
 
     def _parse_routes(self, raw_routes: List[Dict], mode: TravelMode) -> List[MapsRouteResponse]:
         """Parse raw Maps API route list into structured MapsRouteResponse objects."""
         parsed = []
         for i, route in enumerate(raw_routes):
             duration_secs = self._parse_duration_seconds(route.get("duration"))
-            static_duration_secs = self._parse_duration_seconds(route.get("staticDuration", route.get("duration")))
-            has_traffic = "duration" in route and route.get("duration") != route.get("staticDuration")
-            distance_m = route.get("distanceMeters", 0)
+            static_duration_secs = self._parse_duration_seconds(
+                route.get("staticDuration", route.get("duration"))
+            )
+            has_traffic = (
+                "duration" in route
+                and route.get("staticDuration") is not None
+                and route.get("duration") != route.get("staticDuration")
+            )
+            distance_m = route.get("distanceMeters", 0) or 0
             description = route.get("description")
-            legs_raw = route.get("legs", [])
+            legs_raw = route.get("legs", []) or []
 
-            # Parse legs
             parsed_legs = []
             for leg in legs_raw:
                 parsed_legs.append(MapsRouteLeg(
                     duration_seconds=self._parse_duration_seconds(leg.get("duration")),
-                    distance_meters=leg.get("distanceMeters", 0),
+                    distance_meters=leg.get("distanceMeters", 0) or 0,
                 ))
 
-            # Transit-specific: extract walking & transfer details
             transit_legs, transfers, walking_secs = 0, 0, 0
             if mode == TravelMode.TRANSIT:
                 transit_legs, transfers, walking_secs = self._parse_transit_legs(legs_raw)
+                transit_summary = self._extract_transit_summary(legs_raw)
+                if transit_summary and not description:
+                    description = transit_summary
+                elif transit_summary and description:
+                    description = f"{description} ({transit_summary})"
             elif mode == TravelMode.WALK:
-                walking_secs = duration_secs  # All walking
+                walking_secs = duration_secs
 
             parsed.append(MapsRouteResponse(
                 route_index=i,
                 mode=mode,
                 total_duration_seconds=duration_secs,
                 static_duration_seconds=static_duration_secs,
-                distance_meters=distance_m,
+                distance_meters=int(distance_m),
                 has_traffic_data=has_traffic,
                 walking_duration_seconds=walking_secs,
                 transit_legs=transit_legs,
@@ -176,14 +264,26 @@ class MapsClient:
             ))
         return parsed
 
+    def _build_request_body(self, request: MapsRouteRequest) -> Dict[str, Any]:
+        """Construct the Routes API JSON body (testable without HTTP)."""
+        body: Dict[str, Any] = {
+            "origin": self._build_waypoint(request.origin),
+            "destination": self._build_waypoint(request.destination),
+            "travelMode": request.mode.value,
+            "computeAlternativeRoutes": bool(request.compute_alternatives),
+        }
+
+        if request.mode == TravelMode.DRIVE:
+            body["routingPreference"] = "TRAFFIC_AWARE"
+            body["departureTime"] = _normalize_departure_time(request.departure_time)
+        elif request.mode == TravelMode.TRANSIT:
+            body["departureTime"] = _normalize_departure_time(request.departure_time)
+        # WALK: no traffic preference / departure required
+
+        return body
+
     def compute_routes(self, request: MapsRouteRequest) -> List[MapsRouteResponse]:
         """Execute a Maps Routes API call and return structured responses.
-
-        Args:
-            request (MapsRouteRequest): Route request parameters.
-
-        Returns:
-            List[MapsRouteResponse]: Parsed route results.
 
         Raises:
             MissingAPIKeyError: If API key is absent.
@@ -191,23 +291,7 @@ class MapsClient:
             MapsAPIError: For HTTP errors, quota errors, or malformed responses.
         """
         field_mask = TRANSIT_FIELD_MASK if request.mode == TravelMode.TRANSIT else FIELD_MASK
-
-        body: Dict[str, Any] = {
-            "origin": self._build_waypoint(request.origin),
-            "destination": self._build_waypoint(request.destination),
-            "travelMode": request.mode.value,
-            "computeAlternativeRoutes": request.compute_alternatives,
-        }
-
-        if request.mode == TravelMode.DRIVE:
-            body["routingPreference"] = "TRAFFIC_AWARE"
-            if request.departure_time:
-                body["departureTime"] = request.departure_time
-            else:
-                body["departureTime"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        if request.mode == TravelMode.TRANSIT and request.departure_time:
-            body["departureTime"] = request.departure_time
+        body = self._build_request_body(request)
 
         headers = self._safe_headers()
         headers["X-Goog-FieldMask"] = field_mask
@@ -224,22 +308,42 @@ class MapsClient:
         except requests.exceptions.ConnectionError as e:
             raise MapsAPIError(f"Network error connecting to Maps API: {type(e).__name__}")
 
-        if response.status_code == 401 or response.status_code == 403:
-            raise MapsAPIError("Maps API authentication failed. Check GOOGLE_MAPS_API_KEY.", response.status_code)
+        if response.status_code in (401, 403):
+            raise MapsAPIError(
+                "Maps API authentication failed. Check GOOGLE_MAPS_API_KEY.",
+                response.status_code,
+            )
         if response.status_code == 429:
             raise MapsAPIError("Maps API quota exceeded.", response.status_code)
         if response.status_code != 200:
-            raise MapsAPIError(f"Maps API returned HTTP {response.status_code}.", response.status_code)
+            detail = ""
+            try:
+                err = response.json().get("error", {})
+                msg = err.get("message")
+                if msg:
+                    detail = f" {msg}"
+            except Exception:
+                detail = ""
+            raise MapsAPIError(
+                f"Maps API returned HTTP {response.status_code}.{detail}",
+                response.status_code,
+            )
 
         try:
             data = response.json()
         except Exception:
             raise MapsAPIError("Maps API returned non-JSON response.")
 
+        if not isinstance(data, dict):
+            raise MapsAPIError("Maps API returned malformed JSON payload.")
+
         raw_routes = data.get("routes", [])
         if not raw_routes:
             raise NoRoutesFoundError(
-                f"Maps API returned no routes for {request.mode.value}: '{request.origin}' -> '{request.destination}'"
+                f"Maps API returned no routes for {request.mode.value}: "
+                f"'{request.origin}' -> '{request.destination}'"
             )
+        if not isinstance(raw_routes, list):
+            raise MapsAPIError("Maps API returned malformed routes field.")
 
         return self._parse_routes(raw_routes, request.mode)

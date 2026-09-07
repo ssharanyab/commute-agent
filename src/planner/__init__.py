@@ -10,13 +10,21 @@ from src.planner.models import (
     PlannerResult,
     PlannerError,
     InvalidCommuteRequest,
+    InvalidReplanInput,
+    ContextChange,
+    ReplanResult,
 )
 from src.planner.service import plan_commute
+from src.planner.replan import replan_commute
 
 __all__ = [
     "CommuteRequest",
     "PlannerResult",
     "PlannerError",
     "InvalidCommuteRequest",
+    "InvalidReplanInput",
+    "ContextChange",
+    "ReplanResult",
     "plan_commute",
+    "replan_commute",
 ]

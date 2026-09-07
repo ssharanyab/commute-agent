@@ -79,16 +79,99 @@ def test_drive_request_body_includes_traffic_preference():
         origin="Electronic City, Bengaluru",
         destination="Koramangala, Bengaluru",
         mode=TravelMode.DRIVE,
+        departure_time="2030-01-01T08:00:00Z",
     )
-    body = {
-        "origin": client._build_waypoint(req.origin),
-        "destination": client._build_waypoint(req.destination),
-        "travelMode": req.mode.value,
-        "computeAlternativeRoutes": req.compute_alternatives,
-        "routingPreference": "TRAFFIC_AWARE",
-    }
+    body = client._build_request_body(req)
     assert body["routingPreference"] == "TRAFFIC_AWARE"
     assert body["travelMode"] == "DRIVE"
+    assert body["origin"] == {"address": "Electronic City, Bengaluru"}
+    assert body["destination"] == {"address": "Koramangala, Bengaluru"}
+    assert body["departureTime"] == "2030-01-01T08:00:00Z"
+    assert "X-Goog-FieldMask" not in body
+
+
+def test_transit_and_walk_request_bodies():
+    """TRANSIT includes departureTime; WALK omits traffic preference."""
+    client = make_client()
+    transit = client._build_request_body(MapsRouteRequest(
+        origin="Electronic City, Bengaluru",
+        destination="Koramangala, Bengaluru",
+        mode=TravelMode.TRANSIT,
+        departure_time="2030-01-01T08:00:00Z",
+    ))
+    assert transit["travelMode"] == "TRANSIT"
+    assert transit["departureTime"] == "2030-01-01T08:00:00Z"
+    assert "routingPreference" not in transit
+
+    walk = client._build_request_body(MapsRouteRequest(
+        origin="Electronic City, Bengaluru",
+        destination="Koramangala, Bengaluru",
+        mode=TravelMode.WALK,
+    ))
+    assert walk["travelMode"] == "WALK"
+    assert "routingPreference" not in walk
+    assert "departureTime" not in walk
+
+
+def test_past_departure_time_clamped_for_drive():
+    """Past departure times are clamped to a strictly future timestamp."""
+    from src.mobility.maps_client import _normalize_departure_time
+    from datetime import datetime, timezone, timedelta
+
+    before = datetime.now(timezone.utc)
+    clamped = _normalize_departure_time("2024-09-06T08:00:00Z")
+    parsed = datetime.fromisoformat(clamped.replace("Z", "+00:00"))
+    assert parsed > before
+    assert parsed >= before + timedelta(seconds=55)
+
+
+def test_empty_departure_time_clamped_to_future():
+    """Empty departure is clamped to now + 60s (not exactly now)."""
+    from src.mobility.maps_client import _normalize_departure_time
+    from datetime import datetime, timezone, timedelta
+
+    before = datetime.now(timezone.utc)
+    clamped = _normalize_departure_time("")
+    parsed = datetime.fromisoformat(clamped.replace("Z", "+00:00"))
+    assert parsed > before
+    assert parsed >= before + timedelta(seconds=55)
+
+
+def test_naive_bengaluru_ist_departure_converted_to_utc():
+    """Naive ISO is treated as Asia/Kolkata (IST), not UTC."""
+    from src.mobility.maps_client import _normalize_departure_time
+
+    # 14:00 IST = 08:30 UTC
+    assert _normalize_departure_time("2030-01-15T14:00:00") == "2030-01-15T08:30:00Z"
+
+
+def test_ist_offset_iso_converted_to_utc():
+    """Explicit +05:30 offset converts to UTC for Maps."""
+    from src.mobility.maps_client import _normalize_departure_time
+
+    assert (
+        _normalize_departure_time("2030-01-15T14:00:00+05:30")
+        == "2030-01-15T08:30:00Z"
+    )
+
+
+def test_past_naive_ist_departure_clamped():
+    """Past naive IST wall-clock is clamped to a future UTC timestamp."""
+    from src.mobility.maps_client import _normalize_departure_time
+    from datetime import datetime, timezone, timedelta
+
+    before = datetime.now(timezone.utc)
+    clamped = _normalize_departure_time("2020-01-01T09:00:00")
+    parsed = datetime.fromisoformat(clamped.replace("Z", "+00:00"))
+    assert parsed > before
+    assert parsed >= before + timedelta(seconds=55)
+
+
+def test_future_utc_departure_preserved():
+    """Valid future UTC ISO is passed through as UTC Zulu."""
+    from src.mobility.maps_client import _normalize_departure_time
+
+    assert _normalize_departure_time("2030-06-01T10:00:00Z") == "2030-06-01T10:00:00Z"
 
 
 def test_latlng_waypoint_parsing():
@@ -404,3 +487,61 @@ def test_no_routes_for_mode_does_not_crash_other_modes():
 
     assert len(candidates) == 1
     assert candidates[0].mode == "cab"
+
+
+def test_malformed_maps_response_raises():
+    """Non-JSON and non-dict payloads raise MapsAPIError."""
+    client = make_client()
+    bad = MagicMock()
+    bad.status_code = 200
+    bad.json.side_effect = ValueError("no json")
+    with patch("requests.post", return_value=bad):
+        with pytest.raises(MapsAPIError, match="non-JSON"):
+            client.compute_routes(MapsRouteRequest("A", "B", TravelMode.DRIVE))
+
+    not_dict = MagicMock()
+    not_dict.status_code = 200
+    not_dict.json.return_value = ["not", "a", "dict"]
+    with patch("requests.post", return_value=not_dict):
+        with pytest.raises(MapsAPIError, match="malformed JSON"):
+            client.compute_routes(MapsRouteRequest("A", "B", TravelMode.DRIVE))
+
+
+def test_api_error_includes_message_without_key():
+    """HTTP error surfaces API message and never includes the API key."""
+    client = make_client(key="SUPER_SECRET_KEY_VALUE")
+    err_body = {"error": {"message": "API key not valid", "status": "INVALID_ARGUMENT"}}
+    with patch("requests.post", return_value=mock_post(err_body, status_code=400)):
+        with pytest.raises(MapsAPIError) as exc_info:
+            client.compute_routes(MapsRouteRequest("A", "B", TravelMode.DRIVE))
+    assert exc_info.value.status_code == 400
+    assert "API key not valid" in str(exc_info.value)
+    assert "SUPER_SECRET_KEY_VALUE" not in str(exc_info.value)
+
+
+def test_adapt_maps_response_dispatcher_and_provenance():
+    """adapt_maps_response creates RouteCandidates; provenance marks heuristics."""
+    from src.mobility.route_adapter import field_provenance
+
+    drive = MapsRouteResponse(
+        route_index=0,
+        mode=TravelMode.DRIVE,
+        total_duration_seconds=2280,
+        static_duration_seconds=1800,
+        distance_meters=18500,
+        has_traffic_data=True,
+        description="via NH 44",
+    )
+    candidate = adapt_maps_response(drive)
+    assert candidate.route_id == "maps_drive_0"
+    assert candidate.travel_time_minutes == pytest.approx(38.0)
+    assert candidate.cost > 0  # heuristic cab estimate
+
+    prov = field_provenance(TravelMode.DRIVE)
+    assert prov["travel_time_minutes"] == "live"
+    assert prov["cost"] == "heuristic"
+    assert prov["data_source"] == "google_maps_routes"
+
+    transit_prov = field_provenance(TravelMode.TRANSIT)
+    assert transit_prov["walking_minutes"] == "live"
+    assert transit_prov["cost"] == "heuristic"
