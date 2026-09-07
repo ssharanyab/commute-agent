@@ -1,10 +1,13 @@
 """
 ADK-compatible tools wrapping existing application services.
 
-These functions are the tool surface. They do not reimplement Maps, ML,
-or scoring — they call the existing modules.
+Public ADK tool signatures use only Python-3.9-safe primitives so
+FunctionTool declaration succeeds. Internal APIs remain strongly typed.
 """
 
+from __future__ import annotations
+
+import json
 from typing import Any, Dict, List, Optional
 
 from src.decision_engine.models import RouteCandidate, UserPreferences
@@ -22,6 +25,33 @@ def _not_configured(service: str) -> Dict[str, Any]:
         "reason": "not_configured",
         "service": service,
     }
+
+
+def _empty_to_none(value: str) -> Optional[str]:
+    text = (value or "").strip()
+    return text if text else None
+
+
+def _nonneg_or_none(value: float) -> Optional[float]:
+    if value is None:
+        return None
+    if float(value) < 0:
+        return None
+    return float(value)
+
+
+def _zone_or_none(value: int) -> Optional[int]:
+    if value is None or int(value) < 0:
+        return None
+    return int(value)
+
+
+def _parse_modes_csv(modes_csv: str) -> Optional[List[str]]:
+    text = (modes_csv or "").strip()
+    if not text:
+        return None
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    return parts or None
 
 
 def _to_travel_modes(modes: Optional[List[str]]) -> Optional[List[TravelMode]]:
@@ -70,31 +100,35 @@ def plan_commute(
     user_id: str,
     origin: str,
     destination: str,
-    departure_time: Optional[str] = None,
-    objective: Optional[str] = None,
-    origin_zone: Optional[int] = None,
-    destination_zone: Optional[int] = None,
+    departure_time: str = "",
+    objective: str = "",
+    origin_zone: int = -1,
+    destination_zone: int = -1,
     avoid_heavy_traffic: bool = False,
-    max_walking_minutes: Optional[float] = None,
-    max_cost: Optional[float] = None,
-    modes: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Plan a commute using the deterministic planner. Ranking is not done by Gemini."""
+    max_walking_minutes: float = -1.0,
+    max_cost: float = -1.0,
+    modes_csv: str = "",
+) -> dict:
+    """Plan a commute using the deterministic planner. Ranking is not done by Gemini.
+
+    Optional values use empty strings / -1 sentinels (ADK/Python 3.9 safe).
+    modes_csv is a comma-separated list such as "DRIVE,TRANSIT".
+    """
     preferences = UserPreferences(
         avoid_heavy_traffic=bool(avoid_heavy_traffic),
-        max_walking_minutes=max_walking_minutes,
-        max_cost=max_cost,
+        max_walking_minutes=_nonneg_or_none(max_walking_minutes),
+        max_cost=_nonneg_or_none(max_cost),
     )
     request = CommuteRequest(
         user_id=user_id,
         origin=origin,
         destination=destination,
-        departure_time=departure_time,
-        objective=objective,
+        departure_time=_empty_to_none(departure_time),
+        objective=_empty_to_none(objective),
         preferences=preferences,
-        origin_zone=origin_zone,
-        destination_zone=destination_zone,
-        modes=modes,
+        origin_zone=_zone_or_none(origin_zone),
+        destination_zone=_zone_or_none(destination_zone),
+        modes=_parse_modes_csv(modes_csv),
     )
     result = _plan_commute(request)
     payload = result.to_dict()
@@ -105,15 +139,18 @@ def plan_commute(
 def get_routes(
     origin: str,
     destination: str,
-    departure_time: Optional[str] = None,
-    modes: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Fetch candidate routes from the existing Maps mobility service."""
-    travel_modes = _to_travel_modes(modes)
+    departure_time: str = "",
+    modes_csv: str = "",
+) -> dict:
+    """Fetch candidate routes from the existing Maps mobility service.
+
+    modes_csv is a comma-separated list such as "DRIVE,TRANSIT,WALK".
+    """
+    travel_modes = _to_travel_modes(_parse_modes_csv(modes_csv))
     candidates = _get_candidate_routes(
         origin=origin,
         destination=destination,
-        departure_time=departure_time,
+        departure_time=_empty_to_none(departure_time),
         modes=travel_modes,
     )
     return {
@@ -123,7 +160,7 @@ def get_routes(
     }
 
 
-def get_user_preferences(user_id: str) -> Dict[str, Any]:
+def get_user_preferences(user_id: str) -> dict:
     """Load stored user preferences. Not configured in this checkpoint."""
     payload = _not_configured("user_preferences")
     payload["user_id"] = user_id
@@ -136,7 +173,7 @@ def predict_historical_travel_time(
     destination_zone: int,
     hour: int,
     models_dir: str = "models",
-) -> Dict[str, Any]:
+) -> dict:
     """Return the Uber Movement XGBoost historical signal for explicit ward IDs."""
     signal = _get_historical_mobility_signal(
         origin_zone=int(origin_zone),
@@ -150,7 +187,7 @@ def predict_historical_travel_time(
 
 
 def evaluate_routes(
-    candidates: List[Dict[str, Any]],
+    candidates_json: str,
     time_weight: float = 1.0,
     cost_weight: float = 1.0,
     walking_weight: float = 1.0,
@@ -158,23 +195,30 @@ def evaluate_routes(
     congestion_weight: float = 1.0,
     reliability_weight: float = 1.0,
     avoid_heavy_traffic: bool = False,
-    max_walking_minutes: Optional[float] = None,
-    max_cost: Optional[float] = None,
-    preferred_modes: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Rank candidate routes with the deterministic evaluation engine."""
-    routes = [_candidate_from_dict(item) for item in candidates]
+    max_walking_minutes: float = -1.0,
+    max_cost: float = -1.0,
+    preferred_modes_csv: str = "",
+) -> dict:
+    """Rank candidate routes with the deterministic evaluation engine.
+
+    candidates_json: JSON array of route candidate objects.
+    preferred_modes_csv: comma-separated mode names.
+    """
+    raw = json.loads(candidates_json) if candidates_json else []
+    if not isinstance(raw, list):
+        raise ValueError("candidates_json must be a JSON array of route objects")
+    routes = [_candidate_from_dict(item) for item in raw]
     preferences = UserPreferences(
-        time_weight=time_weight,
-        cost_weight=cost_weight,
-        walking_weight=walking_weight,
-        transfer_weight=transfer_weight,
-        congestion_weight=congestion_weight,
-        reliability_weight=reliability_weight,
-        preferred_modes=preferred_modes,
-        max_walking_minutes=max_walking_minutes,
-        max_cost=max_cost,
-        avoid_heavy_traffic=avoid_heavy_traffic,
+        time_weight=float(time_weight),
+        cost_weight=float(cost_weight),
+        walking_weight=float(walking_weight),
+        transfer_weight=float(transfer_weight),
+        congestion_weight=float(congestion_weight),
+        reliability_weight=float(reliability_weight),
+        preferred_modes=_parse_modes_csv(preferred_modes_csv),
+        max_walking_minutes=_nonneg_or_none(max_walking_minutes),
+        max_cost=_nonneg_or_none(max_cost),
+        avoid_heavy_traffic=bool(avoid_heavy_traffic),
     )
     result = _evaluate_routes(routes, preferences)
     payload = result.to_dict()
@@ -182,14 +226,14 @@ def evaluate_routes(
     return payload
 
 
-def get_weather(location: str) -> Dict[str, Any]:
+def get_weather(location: str) -> dict:
     """Weather context. Not configured — does not fabricate conditions."""
     payload = _not_configured("weather")
     payload["location"] = location
     return payload
 
 
-def get_disruptions(origin: str, destination: str) -> Dict[str, Any]:
+def get_disruptions(origin: str, destination: str) -> dict:
     """Live disruption feed. Not configured — does not fabricate incidents."""
     payload = _not_configured("disruptions")
     payload["origin"] = origin
@@ -197,7 +241,7 @@ def get_disruptions(origin: str, destination: str) -> Dict[str, Any]:
     return payload
 
 
-def get_commute_history(user_id: str) -> Dict[str, Any]:
+def get_commute_history(user_id: str) -> dict:
     """User commute history. Not configured — does not fabricate trips."""
     payload = _not_configured("commute_history")
     payload["user_id"] = user_id
@@ -205,14 +249,22 @@ def get_commute_history(user_id: str) -> Dict[str, Any]:
     return payload
 
 
-def save_feedback(user_id: str, route_id: str, rating: Optional[int] = None, comment: Optional[str] = None) -> Dict[str, Any]:
-    """Persist commute feedback. Not configured — does not pretend to save."""
+def save_feedback(
+    user_id: str,
+    route_id: str,
+    rating: int = -1,
+    comment: str = "",
+) -> dict:
+    """Persist commute feedback. Not configured — does not pretend to save.
+
+    rating=-1 means unset; comment="" means unset.
+    """
     payload = _not_configured("feedback")
     payload["user_id"] = user_id
     payload["route_id"] = route_id
     payload["accepted"] = False
-    payload["rating"] = rating
-    payload["comment"] = comment
+    payload["rating"] = None if int(rating) < 0 else int(rating)
+    payload["comment"] = _empty_to_none(comment)
     return payload
 
 

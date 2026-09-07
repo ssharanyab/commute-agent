@@ -7,4 +7,5 @@ jupyter
 joblib
 xgboost
 pytest
+google-adk>=1.0.0,<2
 
