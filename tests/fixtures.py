@@ -10,7 +10,7 @@ from src.decision_engine.models import RouteCandidate
 
 def get_bengaluru_test_candidates() -> list[RouteCandidate]:
     """Return 3 realistic candidate routes for Bengaluru commute (Electronic City to Koramangala).
-    
+
     Returns:
         list[RouteCandidate]: List of candidate routes.
     """
@@ -27,9 +27,14 @@ def get_bengaluru_test_candidates() -> list[RouteCandidate]:
         historical_mobility_signal={
             "signal_source": "historical_uber_movement_ml",
             "has_historical_coverage": True,
+            "historical_coverage": True,
             "historical_typical_travel_time_minutes": 33.5,
-            "historical_congestion_factor": 1.45
-        }
+            "historical_expected_travel_time_minutes": 33.5,
+            "historical_congestion_factor": 1.45,
+            "historical_std_travel_time_minutes": 12.0,
+            "historical_reliability_score": 0.55,
+            "confidence_level": "high",
+        },
     )
 
     candidate_2 = RouteCandidate(
@@ -44,8 +49,10 @@ def get_bengaluru_test_candidates() -> list[RouteCandidate]:
         disruption_risk=0.05,
         historical_mobility_signal={
             "signal_source": "historical_uber_movement_ml",
-            "has_historical_coverage": False
-        }
+            "has_historical_coverage": False,
+            "historical_coverage": False,
+            "confidence_level": "none",
+        },
     )
 
     candidate_3 = RouteCandidate(
@@ -61,9 +68,14 @@ def get_bengaluru_test_candidates() -> list[RouteCandidate]:
         historical_mobility_signal={
             "signal_source": "historical_uber_movement_ml",
             "has_historical_coverage": True,
+            "historical_coverage": True,
             "historical_typical_travel_time_minutes": 39.0,
-            "historical_congestion_factor": 1.15
-        }
+            "historical_expected_travel_time_minutes": 39.0,
+            "historical_congestion_factor": 1.15,
+            "historical_std_travel_time_minutes": 4.0,
+            "historical_reliability_score": 0.88,
+            "confidence_level": "high",
+        },
     )
 
     return [candidate_1, candidate_2, candidate_3]

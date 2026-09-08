@@ -1,4 +1,5 @@
 import 'package:commute_agent/config.dart';
+import 'package:commute_agent/constraint_parser.dart';
 import 'package:commute_agent/departure_time.dart';
 import 'package:commute_agent/models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,29 @@ void main() {
     } else {
       expect(AppConfig.initialApiBaseUrl, AppConfig.apiBaseUrlFromDefine.trim());
     }
+  });
+
+  group('ConstraintParser', () {
+    test('parses No cabs / Avoid cabs / taxi phrases', () {
+      expect(ConstraintParser.parseExcludedModesFromText('No cabs'), ['cab']);
+      expect(ConstraintParser.parseExcludedModesFromText('Avoid cabs'), ['cab']);
+      expect(
+        ConstraintParser.parseExcludedModesFromText("don't take a taxi"),
+        ['cab'],
+      );
+      expect(ConstraintParser.parseExcludedModesFromText('prefer metro'), isEmpty);
+    });
+
+    test('excludeCabs toggle merges with notes', () {
+      expect(
+        ConstraintParser.excludedModes(excludeCabs: true, notes: ''),
+        ['cab'],
+      );
+      expect(
+        ConstraintParser.excludedModes(excludeCabs: false, notes: 'No cabs'),
+        ['cab'],
+      );
+    });
   });
 
   group('BengaluruDeparture IST', () {

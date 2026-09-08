@@ -56,6 +56,9 @@ class MapsRouteResponse:
     transfers: int = 0                    # transfers = transit_legs - 1 (if > 0)
     description: Optional[str] = None
     legs: List[MapsRouteLeg] = field(default_factory=list)
+    # Google-provided geometry / navigation identity (optional — not always present)
+    encoded_polyline: Optional[str] = None
+    route_token: Optional[str] = None
     raw_response: Optional[Dict[str, Any]] = None  # Original API payload for debugging
 
     def to_dict(self) -> Dict[str, Any]:
@@ -71,6 +74,8 @@ class MapsRouteResponse:
             "transfers": self.transfers,
             "description": self.description,
             "legs": [leg.to_dict() for leg in self.legs],
+            "encoded_polyline": self.encoded_polyline,
+            "route_token": self.route_token,
         }
 
 

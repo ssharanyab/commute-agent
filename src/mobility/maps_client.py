@@ -33,6 +33,8 @@ FIELD_MASK = (
     "routes.staticDuration,"
     "routes.distanceMeters,"
     "routes.description,"
+    "routes.polyline.encodedPolyline,"
+    "routes.routeToken,"
     "routes.legs.duration,"
     "routes.legs.distanceMeters,"
     "routes.legs.stepsOverview,"
@@ -44,6 +46,8 @@ TRANSIT_FIELD_MASK = (
     "routes.staticDuration,"
     "routes.distanceMeters,"
     "routes.description,"
+    "routes.polyline.encodedPolyline,"
+    "routes.routeToken,"
     "routes.legs.duration,"
     "routes.legs.distanceMeters,"
     "routes.legs.steps.travelMode,"
@@ -248,6 +252,15 @@ class MapsClient:
             elif mode == TravelMode.WALK:
                 walking_secs = duration_secs
 
+            encoded_polyline = None
+            polyline_obj = route.get("polyline")
+            if isinstance(polyline_obj, dict):
+                raw_poly = polyline_obj.get("encodedPolyline")
+                if isinstance(raw_poly, str) and raw_poly.strip():
+                    encoded_polyline = raw_poly
+            raw_token = route.get("routeToken")
+            route_token = raw_token if isinstance(raw_token, str) and raw_token.strip() else None
+
             parsed.append(MapsRouteResponse(
                 route_index=i,
                 mode=mode,
@@ -260,6 +273,8 @@ class MapsClient:
                 transfers=transfers,
                 description=description,
                 legs=parsed_legs,
+                encoded_polyline=encoded_polyline,
+                route_token=route_token,
                 raw_response=route,
             ))
         return parsed

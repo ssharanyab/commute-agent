@@ -16,6 +16,7 @@ from src.mobility.maps_client import MapsAPIError, MissingAPIKeyError, NoRoutesF
 from src.decision_engine.models import RouteCandidate, UserPreferences
 from src.decision_engine.evaluator import evaluate_routes
 from src.predict import get_historical_mobility_signal
+from src.historical_signal import compute_deviation_percent, classify_deviation
 
 
 SOURCE_GOOGLE_MAPS = "google_maps_routes"
@@ -142,7 +143,20 @@ def _attach_historical_signal(
         warnings.append("HISTORICAL_SIGNAL_MALFORMED")
         return routes, None, False
 
-    attached = [replace(route, historical_mobility_signal=signal) for route in routes]
+    # Per-route copy: Maps duration remains authoritative; attach deviation vs historical.
+    attached: List[RouteCandidate] = []
+    for route in routes:
+        sig = dict(signal)
+        if sig.get("has_historical_coverage") is True:
+            hist_expected = sig.get("historical_expected_travel_time_minutes")
+            if hist_expected is None:
+                hist_expected = sig.get("historical_typical_travel_time_minutes")
+            sig["current_minutes"] = route.travel_time_minutes
+            dev = compute_deviation_percent(route.travel_time_minutes, hist_expected)
+            sig["deviation_percent"] = dev
+            sig["deviation_state"] = classify_deviation(dev)
+        attached.append(replace(route, historical_mobility_signal=sig))
+
     if not signal.get("has_historical_coverage"):
         warnings.append("HISTORICAL_COVERAGE_MISSING")
     return attached, signal, True
@@ -291,6 +305,22 @@ def plan_commute(
             warnings=warnings,
             error="EVALUATOR_FAILURE",
             error_detail=f"{type(e).__name__}: {e}",
+        )
+
+    if evaluation.recommended_route is None and routes:
+        warnings.append("NO_VALID_ROUTES_UNDER_CONSTRAINTS")
+        return PlannerResult(
+            request=request,
+            routes=routes,
+            evaluation=evaluation,
+            data_sources=data_sources,
+            historical_signal_used=historical_used,
+            warnings=warnings,
+            error="NO_VALID_ROUTES",
+            error_detail=(
+                "All candidate routes violate hard user constraints "
+                "(e.g. excluded modes, max walking, max cost)."
+            ),
         )
 
     return PlannerResult(

@@ -37,6 +37,7 @@ def _preferences_from_body(prefs: Optional[PreferencesIn]) -> UserPreferences:
         congestion_weight=prefs.congestion_weight,
         reliability_weight=prefs.reliability_weight,
         preferred_modes=prefs.preferred_modes,
+        excluded_modes=prefs.excluded_modes,
         max_walking_minutes=prefs.max_walking_minutes,
         max_cost=prefs.max_cost,
         avoid_heavy_traffic=prefs.avoid_heavy_traffic,
@@ -100,6 +101,10 @@ def _evaluation_summary(planner_result: PlannerResult) -> Optional[Dict[str, Any
         "score": evaluation.score,
         "reason_codes": list(evaluation.reason_codes),
         "recommended_route_id": rec.route_id if rec else None,
+        "route_categories": [
+            {"category": c.category, "route_id": c.route.route_id}
+            for c in (evaluation.route_categories or [])
+        ],
         "ranked": [
             {
                 "route_id": sr.route.route_id,

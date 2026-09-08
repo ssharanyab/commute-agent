@@ -5,8 +5,27 @@ Defines strongly typed structures for route candidates, user preferences,
 scored route outputs, and overall evaluation results.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+
+
+# ---------------------------------------------------------------------------
+# Named preference profiles (soft weights — not hard mode locks)
+# ---------------------------------------------------------------------------
+PROFILE_FASTEST = "FASTEST"
+PROFILE_CHEAPEST = "CHEAPEST"
+PROFILE_LOW_WALKING = "LOW_WALKING"
+PROFILE_RELIABLE = "RELIABLE"
+PROFILE_LOW_TRAFFIC = "LOW_TRAFFIC"
+PROFILE_BALANCED = "BALANCED"
+
+# Alternative category labels
+CATEGORY_BEST_OVERALL = "BEST_OVERALL"
+CATEGORY_FASTEST = "FASTEST"
+CATEGORY_CHEAPEST = "CHEAPEST"
+CATEGORY_MOST_RELIABLE = "MOST_RELIABLE"
 
 
 @dataclass
@@ -22,6 +41,10 @@ class RouteCandidate:
     reliability_score: float  # 0.0 (unreliable) to 1.0 (highly reliable)
     disruption_risk: float  # 0.0 (low risk) to 1.0 (high disruption risk)
     historical_mobility_signal: Optional[Dict[str, Any]] = None
+    # Google Routes API geometry / identity (optional; fixtures may omit)
+    google_polyline: Optional[str] = None
+    google_route_token: Optional[str] = None
+    distance_meters: Optional[int] = None  # Google-provided when adapted from Maps
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert candidate to dictionary serialization."""
@@ -35,7 +58,10 @@ class RouteCandidate:
             "congestion_score": self.congestion_score,
             "reliability_score": self.reliability_score,
             "disruption_risk": self.disruption_risk,
-            "historical_mobility_signal": self.historical_mobility_signal
+            "historical_mobility_signal": self.historical_mobility_signal,
+            "google_polyline": self.google_polyline,
+            "google_route_token": self.google_route_token,
+            "distance_meters": self.distance_meters,
         }
 
 
@@ -49,6 +75,7 @@ class UserPreferences:
     congestion_weight: float = 1.0
     reliability_weight: float = 1.0
     preferred_modes: Optional[List[str]] = None
+    excluded_modes: Optional[List[str]] = None
     max_walking_minutes: Optional[float] = None
     max_cost: Optional[float] = None
     avoid_heavy_traffic: bool = False
@@ -63,9 +90,91 @@ class UserPreferences:
             "congestion_weight": self.congestion_weight,
             "reliability_weight": self.reliability_weight,
             "preferred_modes": self.preferred_modes,
+            "excluded_modes": list(self.excluded_modes) if self.excluded_modes else None,
             "max_walking_minutes": self.max_walking_minutes,
             "max_cost": self.max_cost,
             "avoid_heavy_traffic": self.avoid_heavy_traffic
+        }
+
+
+def preference_profile(name: str, **overrides: Any) -> UserPreferences:
+    """Build UserPreferences from a named profile.
+
+    Profiles only set soft trade-off weights. Hard constraints (excluded_modes,
+    max_cost, max_walking, avoid_heavy_traffic) must be supplied via overrides
+    or mutated by the caller.
+    """
+    key = (name or PROFILE_BALANCED).strip().upper().replace("-", "_").replace(" ", "_")
+    base: Dict[str, float]
+    if key == PROFILE_FASTEST:
+        base = dict(
+            time_weight=8.0,
+            cost_weight=1.0,
+            walking_weight=1.0,
+            transfer_weight=1.0,
+            congestion_weight=1.0,
+            reliability_weight=1.0,
+        )
+    elif key == PROFILE_CHEAPEST:
+        base = dict(
+            time_weight=1.0,
+            cost_weight=8.0,
+            walking_weight=1.0,
+            transfer_weight=1.0,
+            congestion_weight=1.0,
+            reliability_weight=1.0,
+        )
+    elif key == PROFILE_LOW_WALKING:
+        base = dict(
+            time_weight=1.0,
+            cost_weight=1.0,
+            walking_weight=8.0,
+            transfer_weight=1.0,
+            congestion_weight=1.0,
+            reliability_weight=1.0,
+        )
+    elif key == PROFILE_RELIABLE:
+        base = dict(
+            time_weight=1.0,
+            cost_weight=1.0,
+            walking_weight=1.0,
+            transfer_weight=1.0,
+            congestion_weight=1.0,
+            reliability_weight=8.0,
+        )
+    elif key == PROFILE_LOW_TRAFFIC:
+        base = dict(
+            time_weight=1.0,
+            cost_weight=1.0,
+            walking_weight=1.0,
+            transfer_weight=1.0,
+            congestion_weight=8.0,
+            reliability_weight=1.0,
+        )
+    else:
+        base = dict(
+            time_weight=1.0,
+            cost_weight=1.0,
+            walking_weight=1.0,
+            transfer_weight=1.0,
+            congestion_weight=1.0,
+            reliability_weight=1.0,
+        )
+    base.update(overrides)
+    return UserPreferences(**base)
+
+
+@dataclass
+class RouteCategory:
+    """Labeled alternative derived from actual candidate attributes."""
+    category: str
+    route: RouteCandidate
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "category": self.category,
+            "route_id": self.route.route_id,
+            "route": self.route.to_dict(),
         }
 
 
@@ -101,6 +210,8 @@ class EvaluationResult:
     score: float
     reason_codes: List[str] = field(default_factory=list)
     constraint_violations: List[str] = field(default_factory=list)
+    # Category winners (deduplicated route list separately in alternatives sense)
+    route_categories: List[RouteCategory] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert evaluation result to dictionary serialization."""
@@ -109,5 +220,6 @@ class EvaluationResult:
             "ranked_routes": [r.to_dict() for r in self.ranked_routes],
             "score": round(self.score, 2),
             "reason_codes": self.reason_codes,
-            "constraint_violations": self.constraint_violations
+            "constraint_violations": self.constraint_violations,
+            "route_categories": [c.to_dict() for c in self.route_categories],
         }

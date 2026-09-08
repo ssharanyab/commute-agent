@@ -17,6 +17,7 @@ class PreferencesIn(BaseModel):
     congestion_weight: float = 1.0
     reliability_weight: float = 1.0
     preferred_modes: Optional[List[str]] = None
+    excluded_modes: Optional[List[str]] = None
     max_walking_minutes: Optional[float] = None
     max_cost: Optional[float] = None
     avoid_heavy_traffic: bool = False

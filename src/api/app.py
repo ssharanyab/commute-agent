@@ -50,7 +50,7 @@ def create_app() -> FastAPI:
         status = 200
         if payload.get("error") == "MAPS_API_UNAVAILABLE":
             status = 502
-        elif payload.get("error") == "NO_ROUTES":
+        elif payload.get("error") in {"NO_ROUTES", "NO_VALID_ROUTES"}:
             status = 404
         elif payload.get("error"):
             status = 500
@@ -70,7 +70,7 @@ def create_app() -> FastAPI:
         status = 200
         if payload.get("error") == "MAPS_API_UNAVAILABLE":
             status = 502
-        elif payload.get("error") == "NO_ROUTES":
+        elif payload.get("error") in {"NO_ROUTES", "NO_VALID_ROUTES"}:
             status = 404
         elif payload.get("error"):
             status = 500

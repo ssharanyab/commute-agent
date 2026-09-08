@@ -5,7 +5,24 @@ Provides deterministic candidate route evaluation, constraint validation,
 weighted utility scoring, and human-readable reasoning for commute choices.
 """
 
-from src.decision_engine.models import RouteCandidate, UserPreferences, ScoredRoute, EvaluationResult
+from src.decision_engine.models import (
+    RouteCandidate,
+    UserPreferences,
+    ScoredRoute,
+    EvaluationResult,
+    RouteCategory,
+    preference_profile,
+    PROFILE_FASTEST,
+    PROFILE_CHEAPEST,
+    PROFILE_LOW_WALKING,
+    PROFILE_RELIABLE,
+    PROFILE_LOW_TRAFFIC,
+    PROFILE_BALANCED,
+    CATEGORY_BEST_OVERALL,
+    CATEGORY_FASTEST,
+    CATEGORY_CHEAPEST,
+    CATEGORY_MOST_RELIABLE,
+)
 from src.decision_engine.evaluator import evaluate_routes
 
 __all__ = [
@@ -13,5 +30,17 @@ __all__ = [
     "UserPreferences",
     "ScoredRoute",
     "EvaluationResult",
-    "evaluate_routes"
+    "RouteCategory",
+    "evaluate_routes",
+    "preference_profile",
+    "PROFILE_FASTEST",
+    "PROFILE_CHEAPEST",
+    "PROFILE_LOW_WALKING",
+    "PROFILE_RELIABLE",
+    "PROFILE_LOW_TRAFFIC",
+    "PROFILE_BALANCED",
+    "CATEGORY_BEST_OVERALL",
+    "CATEGORY_FASTEST",
+    "CATEGORY_CHEAPEST",
+    "CATEGORY_MOST_RELIABLE",
 ]

@@ -181,7 +181,14 @@ def test_explicit_historical_ids_invoke_ml(mock_maps, mock_ml):
     assert kwargs["destination_zone"] == 84
     assert kwargs["hour"] == 8
     assert result.historical_signal_used is True
-    assert result.routes[0].historical_mobility_signal == HISTORICAL_SIGNAL
+    attached = result.routes[0].historical_mobility_signal
+    assert attached is not None
+    for key, value in HISTORICAL_SIGNAL.items():
+        assert attached[key] == value
+    # Per-route Maps duration vs historical expected (Maps remains authoritative)
+    assert attached["current_minutes"] == result.routes[0].travel_time_minutes
+    assert "deviation_percent" in attached
+    assert "deviation_state" in attached
     assert result.data_sources == ["google_maps_routes", "uber_movement_xgboost"]
 
 

@@ -8,6 +8,14 @@ JSON schema, used to test parsing logic without live API calls.
 
 from typing import Dict, Any
 
+# Distinct fake encoded polylines / tokens (not real Google geometry)
+POLYLINE_DRIVE_MAIN = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+POLYLINE_DRIVE_ALT = "a~l~Fjk~uOwHJy@P"
+POLYLINE_TRANSIT = "}|qlC_y|_MyA@eB"
+POLYLINE_WALK = "k}qlCkz|_M??"
+ROUTE_TOKEN_DRIVE_MAIN = "FAKE_ROUTE_TOKEN_DRIVE_MAIN_abc123"
+ROUTE_TOKEN_DRIVE_ALT = "FAKE_ROUTE_TOKEN_DRIVE_ALT_xyz789"
+
 
 def get_drive_route_fixture() -> Dict[str, Any]:
     """Single DRIVE route with traffic data (traffic adds ~8 min delay)."""
@@ -18,6 +26,8 @@ def get_drive_route_fixture() -> Dict[str, Any]:
                 "staticDuration": "1800s",    # 30 min without traffic
                 "distanceMeters": 18500,
                 "description": "via NH 44",
+                "polyline": {"encodedPolyline": POLYLINE_DRIVE_MAIN},
+                "routeToken": ROUTE_TOKEN_DRIVE_MAIN,
                 "legs": [
                     {
                         "duration": "2280s",
@@ -30,8 +40,8 @@ def get_drive_route_fixture() -> Dict[str, Any]:
     }
 
 
-def get_drive_alternative_routes_fixture() -> Dict[str, Any]:
-    """Two DRIVE routes (main + alternative)."""
+def get_drive_route_missing_geometry_fixture() -> Dict[str, Any]:
+    """DRIVE route without polyline/token (optional fields absent)."""
     return {
         "routes": [
             {
@@ -39,6 +49,28 @@ def get_drive_alternative_routes_fixture() -> Dict[str, Any]:
                 "staticDuration": "1800s",
                 "distanceMeters": 18500,
                 "description": "via NH 44",
+                "legs": [
+                    {
+                        "duration": "2280s",
+                        "distanceMeters": 18500,
+                    }
+                ]
+            }
+        ]
+    }
+
+
+def get_drive_alternative_routes_fixture() -> Dict[str, Any]:
+    """Two DRIVE routes (main + alternative), each with distinct geometry identity."""
+    return {
+        "routes": [
+            {
+                "duration": "2280s",
+                "staticDuration": "1800s",
+                "distanceMeters": 18500,
+                "description": "via NH 44",
+                "polyline": {"encodedPolyline": POLYLINE_DRIVE_MAIN},
+                "routeToken": ROUTE_TOKEN_DRIVE_MAIN,
                 "legs": [{"duration": "2280s", "distanceMeters": 18500}]
             },
             {
@@ -46,6 +78,8 @@ def get_drive_alternative_routes_fixture() -> Dict[str, Any]:
                 "staticDuration": "2100s",
                 "distanceMeters": 21000,
                 "description": "via Hosur Road",
+                "polyline": {"encodedPolyline": POLYLINE_DRIVE_ALT},
+                "routeToken": ROUTE_TOKEN_DRIVE_ALT,
                 "legs": [{"duration": "2580s", "distanceMeters": 21000}]
             }
         ]
@@ -61,6 +95,8 @@ def get_transit_route_fixture() -> Dict[str, Any]:
                 "staticDuration": "3300s",
                 "distanceMeters": 22000,
                 "description": "via BMTC + Namma Metro",
+                "polyline": {"encodedPolyline": POLYLINE_TRANSIT},
+                # routeToken often unavailable for TRANSIT — omit intentionally
                 "legs": [
                     {
                         "duration": "3300s",
@@ -119,6 +155,7 @@ def get_walk_route_fixture() -> Dict[str, Any]:
                 "staticDuration": "900s",
                 "distanceMeters": 1200,
                 "description": "Walk via 12th Main Rd",
+                "polyline": {"encodedPolyline": POLYLINE_WALK},
                 "legs": [
                     {
                         "duration": "900s",

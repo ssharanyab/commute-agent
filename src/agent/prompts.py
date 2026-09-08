@@ -35,6 +35,8 @@ You may NOT:
 - invent weather
 - invent disruptions
 - override the deterministic recommendation
+- decide whether an excluded mode is allowed
+- reintroduce a mode the user excluded (e.g. cab after "no cabs")
 """
 
 INTENT_EXTRACTION_INSTRUCTION = """Extract a structured commute intent from the user message.
@@ -49,6 +51,7 @@ Return JSON only with these keys:
 - max_walking_minutes (number or null)
 - max_cost (number or null)
 - preferred_modes (array of strings or null)
+- excluded_modes (array of strings or null; hard exclusions e.g. ["cab"])
 - origin_zone (integer or null)
 - destination_zone (integer or null)
 - modes (array of strings or null)

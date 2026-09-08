@@ -96,7 +96,8 @@ def adapt_drive_route(response: MapsRouteResponse, index: int) -> RouteCandidate
     """Convert a DRIVE mode MapsRouteResponse into a RouteCandidate.
 
     Live Maps fields used:   total_duration_seconds, static_duration_seconds,
-                             distance_meters, has_traffic_data
+                             distance_meters, has_traffic_data,
+                             encoded_polyline, route_token
     Estimated fields:        congestion_score, reliability_score, disruption_risk, cost
     Not applicable:          walking_minutes, transfers
     """
@@ -116,6 +117,9 @@ def adapt_drive_route(response: MapsRouteResponse, index: int) -> RouteCandidate
         reliability_score=reliability,
         disruption_risk=_estimate_disruption_risk(TravelMode.DRIVE),
         historical_mobility_signal=None,  # Requires ward ID mapping — disabled by default
+        google_polyline=response.encoded_polyline,
+        google_route_token=response.route_token,
+        distance_meters=int(response.distance_meters) if response.distance_meters else None,
     )
 
 
@@ -123,7 +127,8 @@ def adapt_transit_route(response: MapsRouteResponse, index: int) -> RouteCandida
     """Convert a TRANSIT mode MapsRouteResponse into a RouteCandidate.
 
     Live Maps fields used:   total_duration_seconds, walking_duration_seconds,
-                             transit_legs, transfers
+                             transit_legs, transfers, distance_meters,
+                             encoded_polyline, route_token
     Estimated fields:        congestion_score, reliability_score, disruption_risk, cost
     Not applicable:          has_traffic_data (transit ignores traffic)
     """
@@ -142,13 +147,17 @@ def adapt_transit_route(response: MapsRouteResponse, index: int) -> RouteCandida
         reliability_score=reliability,
         disruption_risk=_estimate_disruption_risk(TravelMode.TRANSIT),
         historical_mobility_signal=None,
+        google_polyline=response.encoded_polyline,
+        google_route_token=response.route_token,
+        distance_meters=int(response.distance_meters) if response.distance_meters else None,
     )
 
 
 def adapt_walk_route(response: MapsRouteResponse, index: int) -> RouteCandidate:
     """Convert a WALK mode MapsRouteResponse into a RouteCandidate.
 
-    Live Maps fields used:   total_duration_seconds, distance_meters
+    Live Maps fields used:   total_duration_seconds, distance_meters,
+                             encoded_polyline, route_token
     Estimated fields:        congestion_score, reliability_score, disruption_risk
     Not applicable:          cost (walking is free), transfers
     """
@@ -163,6 +172,9 @@ def adapt_walk_route(response: MapsRouteResponse, index: int) -> RouteCandidate:
         reliability_score=_estimate_reliability(TravelMode.WALK, 0.05),
         disruption_risk=_estimate_disruption_risk(TravelMode.WALK),
         historical_mobility_signal=None,
+        google_polyline=response.encoded_polyline,
+        google_route_token=response.route_token,
+        distance_meters=int(response.distance_meters) if response.distance_meters else None,
     )
 
 
@@ -189,6 +201,8 @@ def field_provenance(mode: TravelMode) -> Dict[str, str]:
             "travel_time_minutes": "live",
             "distance_meters": "live",
             "has_traffic_data": "live",
+            "google_polyline": "live",
+            "google_route_token": "live",
             "congestion_score": "heuristic",
             "reliability_score": "heuristic",
             "disruption_risk": "heuristic",
@@ -204,6 +218,8 @@ def field_provenance(mode: TravelMode) -> Dict[str, str]:
             "walking_minutes": "live",
             "transfers": "live",
             "transit_legs": "live",
+            "google_polyline": "live",
+            "google_route_token": "live",
             "congestion_score": "heuristic",
             "reliability_score": "heuristic",
             "disruption_risk": "heuristic",
@@ -215,6 +231,8 @@ def field_provenance(mode: TravelMode) -> Dict[str, str]:
         "travel_time_minutes": "live",
         "distance_meters": "live",
         "walking_minutes": "live",
+        "google_polyline": "live",
+        "google_route_token": "live",
         "cost": "heuristic",  # Maps does not price walking; adapter sets 0.0 explicitly
         "congestion_score": "heuristic",
         "reliability_score": "heuristic",

@@ -77,6 +77,7 @@ def parse_intent_from_text(text: str) -> Dict[str, Any]:
         "max_walking_minutes": None,
         "max_cost": None,
         "preferred_modes": None,
+        "excluded_modes": None,
         "origin_zone": None,
         "destination_zone": None,
         "modes": None,
@@ -135,6 +136,17 @@ def parse_intent_from_text(text: str) -> Dict[str, Any]:
     elif "cheapest" in lower or "low cost" in lower:
         intent["objective"] = "cost-sensitive"
 
+    # Deterministic hard mode exclusions (never delegated to Gemini).
+    cab_exclusion = re.search(
+        r"\b(?:no|avoid|without|don'?t\s+(?:use|take)|do\s+not\s+(?:use|take))\s+"
+        r"(?:cabs?|taxis?|rideshares?)\b"
+        r"|"
+        r"\b(?:cabs?|taxis?)\b.{0,24}\b(?:no|avoid|don'?t|do\s+not)\b",
+        lower,
+    )
+    if cab_exclusion or "no cab" in lower or "avoid cab" in lower or "no taxi" in lower:
+        intent["excluded_modes"] = ["cab"]
+
     zone_pair = re.search(
         r"origin[_\s-]?zone\s*[:=]?\s*(\d+).*?destination[_\s-]?zone\s*[:=]?\s*(\d+)",
         lower,
@@ -166,6 +178,7 @@ def intent_to_agent_request(
         max_walking_minutes=intent.get("max_walking_minutes"),
         max_cost=intent.get("max_cost"),
         preferred_modes=intent.get("preferred_modes"),
+        excluded_modes=intent.get("excluded_modes"),
     )
     if intent.get("objective") == "time-sensitive":
         prefs.time_weight = 8.0

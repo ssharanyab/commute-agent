@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'api_client.dart';
 import 'config.dart';
+import 'constraint_parser.dart';
 import 'departure_time.dart';
 import 'models.dart';
 
@@ -57,8 +58,10 @@ class _PlannerPageState extends State<PlannerPage> {
   late final TextEditingController _timeWeight;
   late final TextEditingController _costWeight;
   late final TextEditingController _walkWeight;
+  late final TextEditingController _constraintNotes;
 
   bool _avoidHeavyTraffic = true;
+  bool _excludeCabs = false;
   bool _showPrefs = false;
   bool _loading = false;
   String? _errorTitle;
@@ -80,6 +83,7 @@ class _PlannerPageState extends State<PlannerPage> {
     _timeWeight = TextEditingController(text: '8');
     _costWeight = TextEditingController(text: '1');
     _walkWeight = TextEditingController(text: '1');
+    _constraintNotes = TextEditingController();
   }
 
   @override
@@ -92,6 +96,7 @@ class _PlannerPageState extends State<PlannerPage> {
     _timeWeight.dispose();
     _costWeight.dispose();
     _walkWeight.dispose();
+    _constraintNotes.dispose();
     super.dispose();
   }
 
@@ -122,6 +127,10 @@ class _PlannerPageState extends State<PlannerPage> {
     }
 
     final maxWalk = double.tryParse(_maxWalk.text.trim());
+    final excluded = ConstraintParser.excludedModes(
+      excludeCabs: _excludeCabs,
+      notes: _constraintNotes.text,
+    );
     final body = <String, dynamic>{
       'origin': _origin.text.trim(),
       'destination': _destination.text.trim(),
@@ -130,6 +139,7 @@ class _PlannerPageState extends State<PlannerPage> {
       'preferences': {
         'avoid_heavy_traffic': _avoidHeavyTraffic,
         if (maxWalk != null) 'max_walking_minutes': maxWalk,
+        if (excluded.isNotEmpty) 'excluded_modes': excluded,
         if (_showPrefs) ...{
           'time_weight': double.tryParse(_timeWeight.text) ?? 1.0,
           'cost_weight': double.tryParse(_costWeight.text) ?? 1.0,
@@ -192,6 +202,11 @@ class _PlannerPageState extends State<PlannerPage> {
     }
     if (code == 'NO_ROUTES') {
       return 'No routes were found for this commute.'
+          '${detail.isEmpty ? '' : '\n\n$detail'}';
+    }
+    if (code == 'NO_VALID_ROUTES') {
+      return 'No route satisfies your hard constraints '
+          '(for example excluded modes, walking, or cost limits).'
           '${detail.isEmpty ? '' : '\n\n$detail'}';
     }
     if (code.isNotEmpty) {
@@ -274,12 +289,32 @@ class _PlannerPageState extends State<PlannerPage> {
                         onChanged: (v) =>
                             setState(() => _avoidHeavyTraffic = v),
                       ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Exclude cabs / taxis'),
+                        subtitle: const Text(
+                          'Hard constraint — cab/DRIVE routes cannot be recommended',
+                        ),
+                        value: _excludeCabs,
+                        onChanged: (v) => setState(() => _excludeCabs = v),
+                      ),
                       TextFormField(
                         controller: _maxWalk,
                         decoration: const InputDecoration(
                           labelText: 'Maximum walking time (minutes)',
                         ),
                         keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _constraintNotes,
+                        decoration: const InputDecoration(
+                          labelText: 'Constraint notes (optional)',
+                          hintText: 'e.g. No cabs / Avoid taxis',
+                          helperText:
+                              'Only clear cab/taxi exclusions are applied as hard rules',
+                        ),
+                        maxLines: 2,
                       ),
                       const SizedBox(height: 8),
                       CheckboxListTile(

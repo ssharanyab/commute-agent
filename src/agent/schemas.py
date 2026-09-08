@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from src.decision_engine.models import RouteCandidate, UserPreferences
+from src.decision_engine.scoring import unique_category_alternatives
 from src.planner.models import CommuteRequest, PlannerResult
 
 
@@ -135,9 +136,23 @@ def recommendation_from_planner(
     reason_codes: List[str] = []
     if evaluation:
         reason_codes = list(evaluation.reason_codes)
+        seen = {recommended.route_id} if recommended else set()
+        # Prefer distinct category winners (FASTEST / CHEAPEST / MOST_RELIABLE)
+        for cat in unique_category_alternatives(
+            list(evaluation.route_categories or []),
+            recommended.route_id if recommended else None,
+        ):
+            if cat.route.route_id in seen:
+                continue
+            seen.add(cat.route.route_id)
+            alternatives.append(cat.route)
         for scored in evaluation.ranked_routes:
-            if recommended is None or scored.route.route_id != recommended.route_id:
-                alternatives.append(scored.route)
+            if not scored.is_valid:
+                continue
+            if scored.route.route_id in seen:
+                continue
+            seen.add(scored.route.route_id)
+            alternatives.append(scored.route)
 
     return AgentRecommendation(
         recommended_route=recommended,

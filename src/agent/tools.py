@@ -198,11 +198,13 @@ def evaluate_routes(
     max_walking_minutes: float = -1.0,
     max_cost: float = -1.0,
     preferred_modes_csv: str = "",
+    excluded_modes_csv: str = "",
 ) -> dict:
     """Rank candidate routes with the deterministic evaluation engine.
 
     candidates_json: JSON array of route candidate objects.
     preferred_modes_csv: comma-separated mode names.
+    excluded_modes_csv: comma-separated hard mode exclusions (e.g. cab,taxi).
     """
     raw = json.loads(candidates_json) if candidates_json else []
     if not isinstance(raw, list):
@@ -216,6 +218,7 @@ def evaluate_routes(
         congestion_weight=float(congestion_weight),
         reliability_weight=float(reliability_weight),
         preferred_modes=_parse_modes_csv(preferred_modes_csv),
+        excluded_modes=_parse_modes_csv(excluded_modes_csv),
         max_walking_minutes=_nonneg_or_none(max_walking_minutes),
         max_cost=_nonneg_or_none(max_cost),
         avoid_heavy_traffic=bool(avoid_heavy_traffic),
