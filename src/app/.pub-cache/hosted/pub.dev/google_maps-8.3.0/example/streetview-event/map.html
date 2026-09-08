@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Street View events</title>
+    <style>
+      html, body, #map-canvas {
+        height: 100%;
+        margin: 0px;
+        padding: 0px
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pano" style="width: 45%; height: 100%;float:left"></div>
+    <div id="panoInfo" style="width: 45%; height: 100%;float:left">
+      <table>
+        <tr>
+          <td><b>Position</b></td><td id="position_cell">&nbsp;</td>
+        </tr>
+        <tr>
+          <td><b>POV Heading</b></td><td id="heading_cell">270</td>
+        </tr>
+        <tr>
+          <td><b>POV Pitch</b></td><td id="pitch_cell">0.0</td>
+        </tr>
+        <tr>
+          <td><b>Pano ID</b></td><td id="pano_cell">&nbsp;</td>
+        </tr>
+      </table>
+      <table id="links_table"></table>
+    </div>
+
+    <script src="http://maps.googleapis.com/maps/api/js?key=__API_KEY__"></script>
+    <script defer src="page.dart.js"></script>
+
+  </body>
+</html>

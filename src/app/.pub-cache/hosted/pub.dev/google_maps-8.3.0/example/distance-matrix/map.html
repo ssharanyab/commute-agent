@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Distance Matrix service</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      #map-canvas {
+        height: 100%;
+        width: 50%;
+      }
+      #content-pane {
+        float:right;
+        width:48%;
+        padding-left: 2%;
+      }
+      #outputDiv {
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="content-pane">
+      <div id="inputs">
+        <pre class="prettyprint">
+var origin1 = new LatLng(55.930385, -3.118425);
+var origin2 = 'Greenwich, England';
+var destinationA = 'Stockholm, Sweden';
+var destinationB = new LatLng(50.087692, 14.421150);
+        </pre>
+        <p><button type="button" id="calculateDistances">Calculate
+          distances</button></p>
+      </div>
+      <div id="outputDiv"></div>
+    </div>
+    <div id="map-canvas"></div>
+
+    <script src="http://maps.googleapis.com/maps/api/js?key=__API_KEY__"></script>
+    <script defer src="page.dart.js"></script>
+
+  </body>
+</html>

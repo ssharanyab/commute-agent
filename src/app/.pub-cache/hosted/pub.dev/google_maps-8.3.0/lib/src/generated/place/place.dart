@@ -1,0 +1,116 @@
+// Copyright 2015 Alexandre Ardhuin
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+part of '../place.dart';
+
+@JS('google.maps.places.Place')
+extension type Place._(PlaceOptions _) implements PlaceOptions {
+  external Place(
+    PlaceOptions options,
+  );
+  external AccessibilityOptions? accessibilityOptions;
+  @JS('addressComponents')
+  external JSArray<AddressComponent>? _addressComponents;
+  List<AddressComponent>? get addressComponents => _addressComponents?.toDart;
+  set addressComponents(List<AddressComponent>? value) =>
+      _addressComponents = value?.toJS;
+  external String? adrFormatAddress;
+  external bool? allowsDogs;
+  @JS('attributions')
+  external JSArray<Attribution>? _attributions;
+  List<Attribution>? get attributions => _attributions?.toDart;
+  set attributions(List<Attribution>? value) => _attributions = value?.toJS;
+  external BusinessStatus? businessStatus;
+  external String? displayName;
+  external String? displayNameLanguageCode;
+  external String? editorialSummary;
+  external String? editorialSummaryLanguageCode;
+  external EVChargeOptions? evChargeOptions;
+  external String? formattedAddress;
+  external FuelOptions? fuelOptions;
+  external GoogleMapsLinks? googleMapsLinks;
+  external String? googleMapsURI;
+  external bool? hasCurbsidePickup;
+  external bool? hasDelivery;
+  external bool? hasDineIn;
+  external bool? hasLiveMusic;
+  external bool? hasMenuForChildren;
+  external bool? hasOutdoorSeating;
+  external bool? hasRestroom;
+  external bool? hasTakeout;
+  external String? iconBackgroundColor;
+  external String id;
+  external String? internationalPhoneNumber;
+  external bool? isGoodForChildren;
+  external bool? isGoodForGroups;
+  external bool? isGoodForWatchingSports;
+  external bool? isReservable;
+  external LatLng? location;
+  external String? nationalPhoneNumber;
+  external ParkingOptions? parkingOptions;
+  external PaymentOptions? paymentOptions;
+  @JS('photos')
+  external JSArray<Photo>? _photos;
+  List<Photo>? get photos => _photos?.toDart;
+  set photos(List<Photo>? value) => _photos = value?.toJS;
+  external PlusCode? plusCode;
+  external PostalAddress? postalAddress;
+  external PriceLevel? priceLevel;
+  external PriceRange? priceRange;
+  external String? primaryType;
+  external String? primaryTypeDisplayName;
+  external String? primaryTypeDisplayNameLanguageCode;
+  external num? rating;
+  external OpeningHours? regularOpeningHours;
+  external String? requestedLanguage;
+  external String? requestedRegion;
+  @JS('reviews')
+  external JSArray<Review>? _reviews;
+  List<Review>? get reviews => _reviews?.toDart;
+  set reviews(List<Review>? value) => _reviews = value?.toJS;
+  external bool? servesBeer;
+  external bool? servesBreakfast;
+  external bool? servesBrunch;
+  external bool? servesCocktails;
+  external bool? servesCoffee;
+  external bool? servesDessert;
+  external bool? servesDinner;
+  external bool? servesLunch;
+  external bool? servesVegetarianFood;
+  external bool? servesWine;
+  external String? svgIconMaskURI;
+  @JS('types')
+  external JSArray<JSString>? _types;
+  List<String>? get types => _types?.toDart.map((type) => type.toDart).toList();
+  set types(List<String>? value) =>
+      _types = value.jsify() as JSArray<JSString>?;
+  external num? userRatingCount;
+  external num? utcOffsetMinutes;
+  external LatLngBounds? viewport;
+  external String? websiteURI;
+  external OpeningHours? openingHours;
+  external bool? hasWiFi;
+  external JSAny? /*UNPARSED:Promise<{place:Place}>*/ fetchFields(
+    FetchFieldsRequest options,
+  );
+  external JSObject /*Object<null>*/ toJSON();
+  external static JSAny? /*UNPARSED:Promise<{places:Array<Place>}>*/
+      searchByText(
+    SearchByTextRequest request,
+  );
+  external static JSAny? /*UNPARSED:Promise<{places:Array<Place>}>*/
+      searchNearby(
+    SearchNearbyRequest request,
+  );
+}

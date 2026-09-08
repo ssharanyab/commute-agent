@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Showing elevation along a path</title>
+    <style>
+      html, body, #map-canvas {
+        height: 100%;
+        margin: 0px;
+        padding: 0px
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <div id="map-canvas" style="height:250px;"></div>
+      <div id="elevation_chart"></div>
+    </div>
+
+    <script src="https://www.google.com/jsapi"></script>
+    <script>
+      // Load the Visualization API and the columnchart package.
+      google.load('visualization', '1', {packages: ['columnchart']});
+    </script>
+    <script src="http://maps.googleapis.com/maps/api/js?key=__API_KEY__"></script>
+    <script defer src="page.dart.js"></script>
+
+  </body>
+</html>

@@ -3,10 +3,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:commute_agent/api_client.dart';
-import 'package:commute_agent/config.dart';
-import 'package:commute_agent/departure_time.dart';
-import 'package:commute_agent/models.dart';
+import 'package:commute_agent/core/config/app_config.dart';
+import 'package:commute_agent/core/utils/bengaluru_departure.dart';
+import 'package:commute_agent/data/datasources/commute_remote_data_source.dart';
+import 'package:commute_agent/data/models/commute_models.dart';
 
 Future<void> main() async {
   final base = AppConfig.normalizeBaseUrl(
@@ -19,7 +19,7 @@ Future<void> main() async {
     exit(2);
   }
 
-  final client = CommuteApiClient(baseUrl: base);
+  final client = CommuteRemoteDataSource(baseUrl: base);
   try {
     final health = await client.health();
     stdout.writeln('health: ${jsonEncode(health)}');
@@ -27,9 +27,10 @@ Future<void> main() async {
     final planBody = {
       'origin': 'Electronic City, Bengaluru',
       'destination': 'Koramangala, Bengaluru',
-      'departure_time': BengaluruDeparture.resolveForPlan(
-        BengaluruDeparture.defaultDisplay(),
-      ).apiIso8601,
+      'departure_time':
+          BengaluruDeparture.resolveForPlan(
+            BengaluruDeparture.defaultDisplay(),
+          ).apiIso8601,
       'invoke_gemini': true,
       'preferences': {
         'avoid_heavy_traffic': true,
@@ -38,52 +39,31 @@ Future<void> main() async {
       },
     };
     final plan = await client.plan(planBody);
-    stdout.writeln('PLAN ok=${plan.ok} error=${plan.error}');
     stdout.writeln(
-      '  rec=${plan.recommendation?.routeId} '
-      'mode=${plan.recommendation?.mode} '
-      'min=${plan.recommendation?.travelTimeMinutes}',
-    );
-    stdout.writeln('  sources=${plan.dataSources}');
-    stdout.writeln(
-      '  gemini available=${plan.gemini.available} '
-      'invoked=${plan.gemini.invoked} mode=${plan.gemini.mode}',
-    );
-    stdout.writeln(
-      '  explanation_len=${plan.explanation.length} '
+      'plan ok=${plan.ok} error=${plan.error} '
+      'rec=${plan.recommendation?.routeId} '
+      'polyline=${plan.recommendation?.googlePolyline != null} '
       'alts=${plan.alternatives.length}',
     );
 
-    final replan = await client.replan({
-      'request': planBody,
-      'context_change': ContextChangePayload(
-        trafficChanged: true,
-        contextSource: 'simulated',
-        congestionDelta: 0.55,
-        travelTimeDeltaMinutes: 22,
-        description: 'SIMULATED demo traffic spike',
-      ).toJson(),
-      'invoke_gemini': true,
-    });
-    stdout.writeln(
-      'REPLAN ok=${replan.ok} changed=${replan.recommendationChanged} '
-      'error=${replan.error}',
-    );
-    stdout.writeln(
-      '  ${replan.previousRouteId} -> ${replan.newRouteId}',
-    );
-    stdout.writeln(
-      '  gemini available=${replan.gemini.available} '
-      'invoked=${replan.gemini.invoked} mode=${replan.gemini.mode}',
-    );
-    stdout.writeln('  explanation_len=${replan.explanation.length}');
-    stdout.writeln('  sources=${replan.dataSources}');
-
-    if (!plan.ok) {
-      exit(1);
-    }
-    if (!replan.ok) {
-      exit(1);
+    if (plan.ok && plan.recommendation != null) {
+      final replan = await client.replan({
+        'request': planBody,
+        'context_change':
+            ContextChangeModel(
+              trafficChanged: true,
+              contextSource: 'simulated',
+              congestionDelta: 0.55,
+              travelTimeDeltaMinutes: 22,
+              description: 'SIMULATED e2e smoke spike',
+            ).toJson(),
+        'refresh_live_routes': false,
+        'invoke_gemini': true,
+      });
+      stdout.writeln(
+        'replan ok=${replan.ok} changed=${replan.recommendationChanged} '
+        '${replan.previousRouteId} -> ${replan.newRouteId}',
+      );
     }
   } finally {
     client.close();

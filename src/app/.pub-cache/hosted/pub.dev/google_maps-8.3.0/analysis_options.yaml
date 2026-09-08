@@ -1,0 +1,13 @@
+include: package:lints/recommended.yaml
+analyzer:
+  errors:
+    unused_shown_name: ignore
+    constant_identifier_names: ignore
+    non_constant_identifier_names: ignore
+    unnecessary_getters_setters: ignore
+    file_names: ignore
+    camel_case_types: ignore
+    library_private_types_in_public_api: ignore
+  exclude:
+    # - example/**
+    - '**/*.g.dart'
