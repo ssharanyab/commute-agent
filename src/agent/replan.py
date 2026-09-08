@@ -64,10 +64,14 @@ def _invoke_replan_explanation(
 
     payload = {
         "instructions": REPLAN_EXPLANATION_INSTRUCTION,
+        "decision": replan_result.decision,
         "context_change": replan_result.context_change.to_dict(),
         "previous_route_id": replan_result.previous_route_id,
         "new_route_id": replan_result.new_route_id,
+        "previous_score": replan_result.previous_score,
+        "new_score": replan_result.new_score,
         "recommendation_changed": replan_result.recommendation_changed,
+        "decision_factors": replan_result.decision_factors,
         "provenance_notes": replan_result.provenance_notes,
         "initial_evaluation": (
             replan_result.initial.evaluation.to_dict()
@@ -138,7 +142,9 @@ def run_adaptive_replan(
     result.gemini_invoked = False
     result.adk_invoked = False
     result.mode = MODE_DETERMINISTIC_FALLBACK
-    result.explanation = FALLBACK_NOTICE
+    from src.agent.adaptive import _deterministic_replan_explanation
+
+    result.explanation = _deterministic_replan_explanation(result)
 
     if not invoke_gemini or not result.gemini_available or not adk_importable():
         return result
@@ -150,7 +156,7 @@ def run_adaptive_replan(
         result.adk_invoked = True
         result.mode = MODE_ADK_GEMINI
     else:
-        result.explanation = FALLBACK_NOTICE
+        result.explanation = _deterministic_replan_explanation(result)
         result.gemini_invoked = False
         result.adk_invoked = False
         result.mode = MODE_DETERMINISTIC_FALLBACK

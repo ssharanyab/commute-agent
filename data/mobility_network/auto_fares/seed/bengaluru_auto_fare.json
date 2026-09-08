@@ -1,0 +1,76 @@
+{
+  "dataset_meta": {
+    "authority": "GOVERNMENT_REGULATED",
+    "fare_kind": "government_regulated_auto",
+    "not_live_aggregator": true,
+    "provenance": {
+      "confidence": 0.85,
+      "effective_at": null,
+      "effective_from": null,
+      "notes": "Structure reflects Bengaluru RTA / government-notified auto fare revision as commonly published (\u20b936 first 2 km; \u20b918/km thereafter; 1.5\u00d7 night 22:00\u201305:00). Primary gazette URL may vary by revision; transport.karnataka.gov.in recorded as institutional authority hub.",
+      "quality_notes": "Regulated auto-rickshaw fare estimate for Bengaluru. Not Uber/Ola/Rapido/Namma Yatri live pricing.",
+      "retrieved_at": "2026-09-08T17:00:40.706170+00:00",
+      "source": "bengaluru_rta_auto_fare_regulated",
+      "source_type": "government_regulated",
+      "source_url": "https://transport.karnataka.gov.in/",
+      "version": "rta-notified-structure"
+    }
+  },
+  "fare_rules": [
+    {
+      "base_fare": 36.0,
+      "currency": "INR",
+      "effective_from": "2023-01-01T00:00:00",
+      "effective_until": null,
+      "eligibility": [
+        {
+          "attribute": "vehicle_type",
+          "description": "Applies to regulated auto-rickshaw services",
+          "operator": "eq",
+          "value": "auto_rickshaw"
+        }
+      ],
+      "id": "bengaluru_auto_regulated_v1",
+      "mode": "auto_rickshaw",
+      "network": "bengaluru_auto",
+      "provenance": {
+        "confidence": 0.85,
+        "effective_at": null,
+        "effective_from": null,
+        "notes": "Structure reflects Bengaluru RTA / government-notified auto fare revision as commonly published (\u20b936 first 2 km; \u20b918/km thereafter; 1.5\u00d7 night 22:00\u201305:00). Primary gazette URL may vary by revision; transport.karnataka.gov.in recorded as institutional authority hub.",
+        "quality_notes": "Regulated auto-rickshaw fare estimate for Bengaluru. Not Uber/Ola/Rapido/Namma Yatri live pricing.",
+        "retrieved_at": "2026-09-08T17:00:40.706170+00:00",
+        "source": "bengaluru_rta_auto_fare_regulated",
+        "source_type": "government_regulated",
+        "source_url": "https://transport.karnataka.gov.in/",
+        "version": "rta-notified-structure"
+      },
+      "provider": "Bengaluru_RTA",
+      "rule_structure": {
+        "fare_kind": "government_regulated_auto",
+        "minimum": {
+          "distance_km": 2.0,
+          "fare_inr": 36.0
+        },
+        "night": {
+          "end_local": "05:00",
+          "multiplier": 1.5,
+          "start_local": "22:00"
+        },
+        "not_live_aggregator": true,
+        "per_km_after_minimum_inr": 18.0,
+        "waiting": {
+          "first_free_minutes": 5,
+          "subsequent": "as_per_applicable_regulated_rule"
+        }
+      },
+      "service_exclusions": [
+        "app_aggregator_dynamic_pricing"
+      ],
+      "source": "bengaluru_rta_auto_fare_regulated",
+      "source_url": "https://transport.karnataka.gov.in/",
+      "version": "rta-notified-structure"
+    }
+  ],
+  "version": "rta-notified-structure"
+}

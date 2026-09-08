@@ -6,7 +6,7 @@ A production-oriented AI Travel & Commute Intelligence Agent designed to predict
 
 ## 🎯 Target Cities & Demo Journeys
 - **Mumbai:** Andheri → BKC
-- **Bengaluru:** Electronic City → Koramangala
+- **Bengaluru demo OD:** Electronic City → Majestic
 
 ---
 

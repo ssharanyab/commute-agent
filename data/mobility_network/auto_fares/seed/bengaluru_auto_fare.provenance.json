@@ -1,0 +1,6 @@
+{
+  "artifact": "auto_fares/seed/bengaluru_auto_fare.json",
+  "sha256": "f6ca6e85a9582ba431a3a7e6804b8dffbafcd4be20513b2786eb1b6a47edf228",
+  "bytes": 3075,
+  "role": "normalized_seed_or_policy"
+}

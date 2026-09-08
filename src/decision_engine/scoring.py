@@ -102,10 +102,15 @@ def validate_hard_constraints(candidate: RouteCandidate, preferences: UserPrefer
     """
     violations = []
 
-    if mode_is_excluded(candidate.mode, preferences.excluded_modes):
-        violations.append(
-            f"EXCLUDED_MODE ({candidate.mode} excluded by user constraint)"
-        )
+    modes_to_check = list(candidate.component_modes or [])
+    if candidate.mode and candidate.mode not in modes_to_check:
+        modes_to_check.append(candidate.mode)
+    for mode_token in modes_to_check:
+        if mode_is_excluded(mode_token, preferences.excluded_modes):
+            violations.append(
+                f"EXCLUDED_MODE ({mode_token} excluded by user constraint)"
+            )
+            break
 
     if preferences.max_walking_minutes is not None and candidate.walking_minutes > preferences.max_walking_minutes:
         violations.append(

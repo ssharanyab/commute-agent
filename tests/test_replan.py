@@ -206,7 +206,7 @@ def test_gemini_fallback_still_returns_deterministic_replan(_adk, _creds, mock_e
     result = run_adaptive_replan(initial.request, initial, change, invoke_gemini=True)
     assert result.mode == MODE_DETERMINISTIC_FALLBACK
     assert result.gemini_invoked is False
-    assert result.explanation == FALLBACK_NOTICE
+    assert FALLBACK_NOTICE in result.explanation
     assert result.recommendation_changed is True
     assert result.new_route_id == "maps_drive_1"
 

@@ -1,0 +1,11 @@
+stop_id,stop_name,stop_lat,stop_lon,location_type
+AGPP,Attiguppe,12.961893,77.53358,1
+BYPH,Baiyappanahalli,12.990759,77.65236,1
+IDN,Indiranagar,12.978333,77.638664,1
+JPN,Jaya Prakash Nagar,12.907475,77.57313,1
+MAGR,Mahatma Gandhi Road,12.975526,77.60679,1
+KGWA,"Nadaprabhu Kempegowda Station, Majestic",12.975708,77.572876,1
+YPM,Yeshwantpur,13.023268,77.54987,1
+ZERO,Zero Station,0,0,1
+BADLAT,Bad Lat,999,77.6,1
+ONLYENT,Entrance Only,12.97,77.59,2

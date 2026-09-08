@@ -134,7 +134,7 @@ def test_all_adk_tool_declarations_succeed():
     from google.adk.tools.function_tool import FunctionTool
 
     tools = agent_tools.adk_tool_functions()
-    assert len(tools) == 9
+    assert len(tools) == 12
     for fn in tools:
         decl = FunctionTool(fn)._get_declaration()
         assert decl is not None
@@ -301,7 +301,7 @@ def test_build_adk_agent_uses_tools_and_system_instruction():
     agent = build_adk_agent(model="gemini-2.0-flash")
     assert agent.name == "commute_planner_agent"
     assert "deterministic" in agent.instruction.lower() or "Never invent" in agent.instruction
-    assert len(agent.tools) == 9
+    assert len(agent.tools) == 12
 
 
 @patch("src.agent.planner._invoke_adk_explanation")

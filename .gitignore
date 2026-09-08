@@ -68,6 +68,21 @@ data/processed/*
 models/*
 !models/.gitkeep
 
+# Mobility network: keep seeds/README/audit JSON; omit large GTFS + snapshots
+data/mobility_network/**/snapshots/
+data/mobility_network/**/failed/
+data/mobility_network/**/active.json
+data/mobility_network/bmtc/**/*.zip
+data/mobility_network/bmtc/gtfs/
+data/mobility_network/bmrcl/**/*.zip
+data/mobility_network/bmrcl/gtfs/
+!data/mobility_network/bmtc/audit/
+!data/mobility_network/bmtc/audit/**
+!data/mobility_network/bmrcl/audit/
+!data/mobility_network/bmrcl/audit/**
+.tmp_bmrcl_gtfs/
+.tmp_bmtc_gtfs/
+
 # IDE / OS specific files
 .vscode/
 .idea/

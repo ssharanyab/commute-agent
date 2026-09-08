@@ -1,7 +1,7 @@
 """
 Demo: ADK + Gemini commute agent (with deterministic fallback).
 
-Example: Electronic City → Koramangala at 8 AM.
+Example: Electronic City → Majestic at 8 AM.
 Uses Maps fixtures when GOOGLE_MAPS_API_KEY is unset.
 Never fabricates a Gemini response when credentials are missing.
 """
@@ -19,7 +19,7 @@ from tests.maps_fixtures import (
 )
 
 USER_TEXT = (
-    "Find the best way from Electronic City to Koramangala at 8 AM. "
+    "Find the best way from Electronic City to Majestic at 8 AM. "
     "Avoid heavy traffic and keep walking under 10 minutes."
 )
 

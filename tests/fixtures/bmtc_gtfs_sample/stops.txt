@@ -1,0 +1,4 @@
+stop_id,stop_code,stop_name,stop_lat,stop_lon
+S1,1,Kempegowda Bus Station,12.9770,77.5720
+S2,2,Indiranagar Metro Station,12.9784,77.6408
+S3,3,Incomplete Stop,,

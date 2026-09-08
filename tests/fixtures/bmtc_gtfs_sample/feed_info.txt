@@ -1,0 +1,2 @@
+feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version
+Vonter unofficial BMTC GTFS,https://github.com/Vonter/bmtc-gtfs,en,20240101,20241231,sample-fixture-1

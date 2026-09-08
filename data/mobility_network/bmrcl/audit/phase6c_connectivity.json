@@ -1,0 +1,78 @@
+{
+  "bmtc_snapshot_present": true,
+  "bmtc_snapshot_version": "community-20260908",
+  "coordinate_coverage_percent": 94.0,
+  "dataset_meta_enrichment": {
+    "coordinate_source": "OpenStreetMap-derived",
+    "enabled": true,
+    "feed_version": "20260817",
+    "gtfs_path": "/Users/sharanyabharghavi/Personal/projects/commute-agent/.tmp_bmrcl_gtfs/bmrcl-gtfs-main/gtfs/bmrcl.zip",
+    "notes": "Coordinates enriched from community GTFS; topology provenance remains official/normalized seed. Do not treat GTFS times as authoritative.",
+    "raw_checksum": "c19f56f32ad53525c71191125409dc8dded12dd2cebfc576ad9a4db23a62b8a7",
+    "report": {
+      "ambiguous": 0,
+      "invalid_coordinate": 0,
+      "matched": 47,
+      "total_stations": 50,
+      "unmatched": 3
+    },
+    "retrieved_at": "2026-09-08T18:08:34.677089+00:00",
+    "source_name": "Vonter BMRCL GTFS",
+    "source_type": "community_unofficial",
+    "source_url": "https://github.com/Vonter/bmrcl-gtfs"
+  },
+  "duplicate_coordinates": {},
+  "generated_at": "2026-09-08T18:08:35.026280+00:00",
+  "interchange_station_count": 4,
+  "interchange_station_ids": [
+    "central_silk_board",
+    "jayadeva",
+    "nadaprabhu_kempegowda",
+    "rv_road"
+  ],
+  "limitations": [
+    "Coordinate source is COMMUNITY_UNOFFICIAL (not BMRCL official).",
+    "Community GTFS timetable approximations are not used.",
+    "Geographic proximity \u2260 guaranteed pedestrian access.",
+    "Unmatched seed stations retain null coordinates."
+  ],
+  "metro_lines": [
+    "purple",
+    "green",
+    "yellow",
+    "pink",
+    "blue"
+  ],
+  "multimodal": {
+    "audit_radius_meters": 800.0,
+    "bmrcl_stations_with_coordinates": 47,
+    "bmtc_stops_with_coordinates": 9960,
+    "nearby_bmtc_stop_links": 1114,
+    "note": "Proximity within radius does not prove a safe real-world walk; Journey Builder uses these coordinates for bounded transfer edges only.",
+    "relationship": "geographic_proximity",
+    "stations_with_nearby_bmtc_stop": 47,
+    "stations_without_nearby_bmtc_stop": 0,
+    "stations_without_nearby_bmtc_stop_ids": []
+  },
+  "nearby_bmtc_stop_count": 1114,
+  "out_of_bounds_or_invalid_coordinates": 0,
+  "phase": "6C",
+  "source": {
+    "coordinates": "Vonter BMRCL GTFS (OpenStreetMap-derived)",
+    "coordinates_source_type": "community_unofficial",
+    "coordinates_source_url": "https://github.com/Vonter/bmrcl-gtfs",
+    "raw_gtfs_bytes": 2369725,
+    "raw_gtfs_path": "/Users/sharanyabharghavi/Personal/projects/commute-agent/.tmp_bmrcl_gtfs/bmrcl-gtfs-main/gtfs/bmrcl.zip",
+    "raw_gtfs_sha256": "c19f56f32ad53525c71191125409dc8dded12dd2cebfc576ad9a4db23a62b8a7",
+    "retrieved_at": "2026-09-08T18:08:34.684400+00:00",
+    "seed_path": "data/mobility_network/bmrcl/seed/bmrcl_network_seed.json",
+    "snapshot_checksum": "56f55e9cba4a4492085ff01f3c0edacad2944664c98253d8bb9fef7689190811",
+    "snapshot_version": "bmrcl-enriched-20260908",
+    "topology": "bmrcl_official_web_normalized"
+  },
+  "station_count": 50,
+  "stations_with_coordinates": 47,
+  "stations_with_nearby_bmtc_stop": 47,
+  "stations_without_coordinates": 3,
+  "stations_without_nearby_bmtc_stop": 0
+}

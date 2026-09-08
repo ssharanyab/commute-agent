@@ -1,0 +1,2 @@
+feed_publisher_name,feed_publisher_url,feed_lang,feed_version
+Vonter,https://github.com/Vonter/bmrcl-gtfs,en,fixture-6c

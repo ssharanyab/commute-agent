@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+R500,BMTC,500,Kempegowda Bus Station To Indiranagar,3
+R999,BMTC,999,Ghost Route Without Trips,3

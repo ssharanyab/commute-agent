@@ -8,6 +8,7 @@ FunctionTool declaration succeeds. Internal APIs remain strongly typed.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.decision_engine.models import RouteCandidate, UserPreferences
@@ -136,6 +137,96 @@ def plan_commute(
     return payload
 
 
+def plan_commute_with_adk_tool(
+    user_id: str,
+    origin: str,
+    destination: str,
+    departure_time: str = "",
+    origin_lat: float = -999.0,
+    origin_lon: float = -999.0,
+    destination_lat: float = -999.0,
+    destination_lon: float = -999.0,
+    origin_zone: int = -1,
+    destination_zone: int = -1,
+    excluded_modes_csv: str = "",
+    max_walking_minutes: float = -1.0,
+    max_transfers: int = -1,
+    invoke_gemini: bool = False,
+) -> dict:
+    """ADK Mobility Orchestrator (Phase 5D). Decision Engine ranks; Gemini explains only."""
+    from src.agent.orchestrator import OrchestratorRequest, plan_commute_with_adk
+
+    def _coord(v: float) -> Optional[float]:
+        return None if float(v) <= -900 else float(v)
+
+    dep = _empty_to_none(departure_time)
+    if dep:
+        departure = datetime.fromisoformat(dep.replace("Z", "+00:00"))
+    else:
+        departure = datetime.now(timezone.utc)
+
+    prefs = UserPreferences(
+        excluded_modes=_parse_modes_csv(excluded_modes_csv),
+        max_walking_minutes=_nonneg_or_none(max_walking_minutes),
+    )
+    result = plan_commute_with_adk(
+        OrchestratorRequest(
+            user_id=user_id,
+            origin=origin,
+            destination=destination,
+            departure_time=departure,
+            origin_lat=_coord(origin_lat),
+            origin_lon=_coord(origin_lon),
+            destination_lat=_coord(destination_lat),
+            destination_lon=_coord(destination_lon),
+            preferences=prefs,
+            origin_zone=_zone_or_none(origin_zone),
+            destination_zone=_zone_or_none(destination_zone),
+            max_transfers=None if int(max_transfers) < 0 else int(max_transfers),
+            invoke_gemini=bool(invoke_gemini),
+            allow_legacy_maps_fallback=True,
+        ),
+        repository=None,
+    )
+    payload = result.to_dict()
+    payload["tool"] = "plan_commute_with_adk"
+    return payload
+
+
+def query_mobility_network_tool(
+    latitude: float,
+    longitude: float,
+    stop_radius_m: float = 800.0,
+) -> dict:
+    """Query static mobility network near a point (repository wired via orchestrator)."""
+    payload = _not_configured("mobility_network_repository")
+    payload["tool"] = "query_mobility_network"
+    payload["latitude"] = latitude
+    payload["longitude"] = longitude
+    payload["stop_radius_m"] = stop_radius_m
+    return payload
+
+
+def build_journeys_tool(
+    origin_lat: float,
+    origin_lon: float,
+    destination_lat: float,
+    destination_lon: float,
+    departure_time: str = "",
+    excluded_modes_csv: str = "",
+) -> dict:
+    """Journey Builder capability declaration — full run via plan_commute_with_adk."""
+    return {
+        "tool": "build_candidate_journeys",
+        "available": False,
+        "reason": "repository_required",
+        "origin": [origin_lat, origin_lon],
+        "destination": [destination_lat, destination_lon],
+        "departure_time": _empty_to_none(departure_time),
+        "excluded_modes": _parse_modes_csv(excluded_modes_csv),
+    }
+
+
 def get_routes(
     origin: str,
     destination: str,
@@ -231,8 +322,16 @@ def evaluate_routes(
 
 def get_weather(location: str) -> dict:
     """Weather context. Not configured — does not fabricate conditions."""
-    payload = _not_configured("weather")
+    from src.agent.capabilities.weather import get_weather_context
+
+    ctx = get_weather_context(location)
+    payload = ctx.to_dict()
+    payload["tool"] = "get_weather"
     payload["location"] = location
+    if not ctx.available:
+        payload["available"] = False
+        payload["reason"] = ctx.reason
+        payload["service"] = "weather"
     return payload
 
 
@@ -275,6 +374,9 @@ def adk_tool_functions():
     """Return the callable tools for an ADK Agent tools= list."""
     return [
         plan_commute,
+        plan_commute_with_adk_tool,
+        query_mobility_network_tool,
+        build_journeys_tool,
         get_routes,
         get_user_preferences,
         predict_historical_travel_time,

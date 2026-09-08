@@ -1,0 +1,12 @@
+{
+  "_comment": "Deterministic seed_id → community GTFS stop_id aliases for known renames/spellings. Not journey templates. Unlisted stations rely on exact normalized name match only.",
+  "aliases": {
+    "baiyyappanahalli": "BYPH",
+    "vidhana_soudha": "VDSA",
+    "city_railway": "BRCS",
+    "mysuru_road": "MYRD",
+    "goraguntepalya": "YPI",
+    "yeshwanthpur": "YPM",
+    "jp_nagar": "JPN"
+  }
+}

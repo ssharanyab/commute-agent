@@ -45,6 +45,8 @@ class RouteCandidate:
     google_polyline: Optional[str] = None
     google_route_token: Optional[str] = None
     distance_meters: Optional[int] = None  # Google-provided when adapted from Maps
+    # Segment modes for hard exclusion across the full journey (not scoring).
+    component_modes: Optional[List[str]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert candidate to dictionary serialization."""
@@ -62,6 +64,7 @@ class RouteCandidate:
             "google_polyline": self.google_polyline,
             "google_route_token": self.google_route_token,
             "distance_meters": self.distance_meters,
+            "component_modes": list(self.component_modes) if self.component_modes else None,
         }
 
 

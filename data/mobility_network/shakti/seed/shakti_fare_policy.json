@@ -1,0 +1,104 @@
+{
+  "dataset_meta": {
+    "authority": "OFFICIAL_GOVERNMENT",
+    "provenance": {
+      "confidence": 0.9,
+      "effective_at": null,
+      "effective_from": null,
+      "notes": "Supporting research: https://fpibengaluru.karnataka.gov.in/storage/pdf-files/Technical%20Reports/FinalcopyofFiscaleffectsofShaktiScheme_04072024.pdf",
+      "quality_notes": "Official government scheme documentation. Eligibility must be evaluated explicitly; do not assume from incomplete passenger profiles.",
+      "retrieved_at": "2026-09-08T17:00:40.706410+00:00",
+      "source": "karnataka_shakti_scheme",
+      "source_type": "official_open_data",
+      "source_url": "https://bengaluruurban.nic.in/en/scheme-category/transport-department/",
+      "version": "shakti-gov-docs"
+    },
+    "scheme": "Shakti"
+  },
+  "fare_rules": [
+    {
+      "base_fare": 0.0,
+      "currency": "INR",
+      "effective_from": "2023-06-11T00:00:00",
+      "effective_until": null,
+      "eligibility": [
+        {
+          "attribute": "domicile",
+          "description": "Passenger must be Karnataka-domiciled",
+          "operator": "eq",
+          "value": "Karnataka"
+        },
+        {
+          "attribute": "passenger_category",
+          "description": "Eligible passenger categories under Shakti",
+          "operator": "in",
+          "value": [
+            "woman",
+            "girl",
+            "transgender"
+          ]
+        },
+        {
+          "attribute": "operator",
+          "description": "Government-run bus corporations",
+          "operator": "in",
+          "value": [
+            "BMTC",
+            "KSRTC",
+            "NWKRTC",
+            "NEKRTC"
+          ]
+        },
+        {
+          "attribute": "service_class",
+          "description": "Luxury/AC and similar services excluded",
+          "operator": "not_in",
+          "value": [
+            "luxury",
+            "ac",
+            "air_conditioned",
+            "volvo_ac"
+          ]
+        }
+      ],
+      "id": "karnataka_shakti_zero_fare_v1",
+      "mode": "bus",
+      "network": "karnataka_govt_bus",
+      "provenance": {
+        "confidence": 0.9,
+        "effective_at": null,
+        "effective_from": null,
+        "notes": "Supporting research: https://fpibengaluru.karnataka.gov.in/storage/pdf-files/Technical%20Reports/FinalcopyofFiscaleffectsofShaktiScheme_04072024.pdf",
+        "quality_notes": "Official government scheme documentation. Eligibility must be evaluated explicitly; do not assume from incomplete passenger profiles.",
+        "retrieved_at": "2026-09-08T17:00:40.706410+00:00",
+        "source": "karnataka_shakti_scheme",
+        "source_type": "official_open_data",
+        "source_url": "https://bengaluruurban.nic.in/en/scheme-category/transport-department/",
+        "version": "shakti-gov-docs"
+      },
+      "provider": "Government_of_Karnataka",
+      "rule_structure": {
+        "eligible_operators": [
+          "BMTC",
+          "KSRTC",
+          "NWKRTC",
+          "NEKRTC"
+        ],
+        "fare_kind": "concession_zero_fare",
+        "geography": "Karnataka",
+        "scheme": "Shakti",
+        "zero_fare_when_eligible": true
+      },
+      "service_exclusions": [
+        "luxury",
+        "ac",
+        "air_conditioned",
+        "volvo_ac"
+      ],
+      "source": "karnataka_shakti_scheme",
+      "source_url": "https://bengaluruurban.nic.in/en/scheme-category/transport-department/",
+      "version": "shakti-gov-docs"
+    }
+  ],
+  "version": "shakti-gov-docs"
+}
