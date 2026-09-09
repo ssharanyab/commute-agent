@@ -1,0 +1,68 @@
+{
+  "version": "bmrcl-token-fares-20250214",
+  "dataset_meta": {
+    "authority": "OFFICIAL",
+    "fare_kind": "token_station_count_slabs",
+    "ticket_media_modeled": "token",
+    "effective_date": "2025-02-14",
+    "notes": [
+      "Transcribed from BMRCL official Revised Fare Chart PDF titled 'BMRCL Fares - 14.02.2025'.",
+      "Metric on the chart: 'No. of Stations travelled excluding originating station'.",
+      "Feb 2026 annual automatic fare revision was put on hold by BMRCL; these amounts remain the applicable token face fares unless superseded.",
+      "BMRCL FFC media brief (08.02.2025) also publishes identical rupee amounts as distance (km) zones. This artifact uses the station-count website chart because authoritative OD network distances are not present in the published topology snapshot; unofficial haversine must not drive fares.",
+      "Smart-card / NCMC peak and off-peak discounts are documented on the chart but are not applied here; Decision Engine cost uses token face fares."
+    ]
+  },
+  "fare_rules": [
+    {
+      "id": "bmrcl_token_station_slabs_v20250214",
+      "provider": "BMRCL",
+      "network": "bmrcl",
+      "mode": "metro",
+      "base_fare": 10.0,
+      "currency": "INR",
+      "effective_from": "2025-02-14T00:00:00+05:30",
+      "effective_until": null,
+      "version": "bmrcl-token-fares-20250214",
+      "eligibility": [],
+      "service_exclusions": [
+        "smart_card_peak_discount",
+        "smart_card_offpeak_discount",
+        "ncmc_discount",
+        "tourist_day_pass",
+        "group_ticket"
+      ],
+      "rule_structure": {
+        "fare_kind": "token_station_count_slabs",
+        "metric": "stations_travelled_excluding_origin",
+        "same_station_entry_exit_inr": 10,
+        "currency": "INR",
+        "slabs": [
+          {"slab": 1, "min_stations": 1, "max_stations": 2, "fare_inr": 10},
+          {"slab": 2, "min_stations": 3, "max_stations": 4, "fare_inr": 20},
+          {"slab": 3, "min_stations": 5, "max_stations": 6, "fare_inr": 30},
+          {"slab": 4, "min_stations": 7, "max_stations": 8, "fare_inr": 40},
+          {"slab": 5, "min_stations": 9, "max_stations": 10, "fare_inr": 50},
+          {"slab": 6, "min_stations": 11, "max_stations": 15, "fare_inr": 60},
+          {"slab": 7, "min_stations": 16, "max_stations": 20, "fare_inr": 70},
+          {"slab": 8, "min_stations": 21, "max_stations": 25, "fare_inr": 80},
+          {"slab": 9, "min_stations": 26, "max_stations": 30, "fare_inr": 90},
+          {"slab": 10, "min_stations": 31, "max_stations": null, "fare_inr": 90}
+        ]
+      },
+      "provenance": {
+        "source": "bmrcl_revised_fare_chart_20250214",
+        "source_type": "official_open_data",
+        "source_url": "https://english.bmrc.co.in:8282/English/uploads/news/english/fileuploads/Revised_Fare_Chart_for_webiste.pdf",
+        "retrieved_at": "2026-09-09T14:50:00+00:00",
+        "effective_from": "2025-02-14T00:00:00+05:30",
+        "version": "bmrcl-token-fares-20250214",
+        "confidence": 0.95,
+        "notes": "Official BMRCL website upload 'Revised_Fare_Chart_for_webiste.pdf' (title: BMRCL Fares - 14.02.2025). Related official FFC media brief: https://english.bmrc.co.in:8282/English/uploads/news/english/fileuploads/1739069224825$@!!Media%20Brief%20-English-%20Fin%2008.02.2025%20(1).pdf",
+        "quality_notes": "Token face fares by station-count slabs. Not smart-card discounted fares. Not unofficial aggregator tables."
+      },
+      "source": "bmrcl_revised_fare_chart_20250214",
+      "source_url": "https://english.bmrc.co.in:8282/English/uploads/news/english/fileuploads/Revised_Fare_Chart_for_webiste.pdf"
+    }
+  ]
+}

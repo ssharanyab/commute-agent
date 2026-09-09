@@ -290,10 +290,19 @@ class TestPhase6BGoalDirectedSearch:
             )
         )
         # Only corridor ends should be within 150m of OD anchors.
-        assert result.search_metadata["origin_access_count"] >= 1
-        assert result.search_metadata["origin_access_count"] <= 3
-        assert result.search_metadata["destination_access_count"] >= 1
-        assert result.search_metadata["destination_access_count"] <= 3
+        # Phase 7K-9: OD colocated with a stop (≤1 m) anchors with zero access edges.
+        o_count = result.search_metadata["origin_access_count"]
+        d_count = result.search_metadata["destination_access_count"]
+        if o_count == 0:
+            start = result.search_metadata.get("start_id") or ""
+            assert start.startswith(("stop:", "station:"))
+        else:
+            assert 1 <= o_count <= 3
+        if d_count == 0:
+            goal = result.search_metadata.get("goal_id") or ""
+            assert goal.startswith(("stop:", "station:"))
+        else:
+            assert 1 <= d_count <= 3
 
     def test_walking_edges_do_not_all_pairs(self, long_repo):
         g = build_mobility_graph(long_repo, walk_transfer_meters=400)

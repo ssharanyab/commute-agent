@@ -80,6 +80,10 @@ class CommuteRepositoryImpl implements CommuteRepository {
         'destination_lat': request.destinationLat,
       if (request.destinationLon != null)
         'destination_lon': request.destinationLon,
+      if (request.originEndpoint != null)
+        'origin_endpoint': request.originEndpoint,
+      if (request.destinationEndpoint != null)
+        'destination_endpoint': request.destinationEndpoint,
       if (request.modes != null) 'modes': request.modes,
       'invoke_gemini': request.invokeGemini,
       'invoke_weather': request.invokeWeather,

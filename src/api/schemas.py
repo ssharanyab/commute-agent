@@ -66,6 +66,26 @@ class MobilityConstraintsIn(BaseModel):
         return [AccessoryMode.parse(m).value for m in value]
 
 
+class EndpointIn(BaseModel):
+    """Phase 7K-4 endpoint: place or published network node."""
+
+    kind: str = "place"
+    network: Optional[str] = None
+    node_id: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    place_id: Optional[str] = None
+    display_name: Optional[str] = None
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_ok(cls, value: str) -> str:
+        key = (value or "place").strip().lower()
+        if key not in {"place", "network_node"}:
+            raise ValueError("kind must be 'place' or 'network_node'")
+        return key
+
+
 class PlanRequest(BaseModel):
     origin: str = Field(..., min_length=1)
     destination: str = Field(..., min_length=1)
@@ -83,6 +103,9 @@ class PlanRequest(BaseModel):
     origin_lon: Optional[float] = None
     destination_lat: Optional[float] = None
     destination_lon: Optional[float] = None
+    # Phase 7K-4 structured endpoints (optional; legacy lat/lon still work).
+    origin_endpoint: Optional[EndpointIn] = None
+    destination_endpoint: Optional[EndpointIn] = None
     modes: Optional[List[str]] = None
     preferences: Optional[PreferencesIn] = None
     invoke_gemini: bool = True

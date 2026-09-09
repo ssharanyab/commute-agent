@@ -36,15 +36,27 @@ def _leg_duration_minutes(
     if leg.duration_status == ValueStatus.UNAVAILABLE.value:
         return None, ValueStatus.UNAVAILABLE.value
 
+    # Prefer builder-supplied structural estimate seconds (still unknown).
+    if (
+        leg.duration_status == ValueStatus.UNKNOWN.value
+        and leg.duration_seconds is not None
+    ):
+        return float(leg.duration_seconds) / 60.0, ValueStatus.UNKNOWN.value
+
     dist = float(leg.distance_meters or 0.0)
     mode = leg.mode.value
     if mode == "walk":
         return (dist / WALK_M_PER_MIN if dist else 0.0), ValueStatus.KNOWN.value
     if mode == "metro":
-        # Structural only — community schedules are not authoritative.
-        return ((dist / METRO_M_PER_MIN) if dist else 8.0), ValueStatus.UNKNOWN.value
+        # Structural only — no authoritative timetable in published snapshot.
+        # Do not invent a fixed minute count when distance is missing.
+        if dist <= 0:
+            return None, ValueStatus.UNKNOWN.value
+        return (dist / METRO_M_PER_MIN), ValueStatus.UNKNOWN.value
     if mode == "bus":
-        return ((dist / BUS_M_PER_MIN) if dist else 12.0), ValueStatus.UNKNOWN.value
+        if dist <= 0:
+            return None, ValueStatus.UNKNOWN.value
+        return (dist / BUS_M_PER_MIN), ValueStatus.UNKNOWN.value
     if leg.needs_enrichment or mode in {"cab", "auto_rickshaw"}:
         # No Maps result — duration unknown (not fabricated).
         return None, ValueStatus.UNKNOWN.value
@@ -80,6 +92,7 @@ def journeys_to_route_candidates(
         any_unknown_duration = False
         any_unavailable_duration = False
         used_enrichment = False
+        known_or_structural_minutes = False
         congestion_scores: List[float] = []
         total_distance = 0.0
 
@@ -110,6 +123,7 @@ def journeys_to_route_candidates(
                 any_unknown_duration = True
             if minutes is not None:
                 travel_min += minutes
+                known_or_structural_minutes = True
 
         # Prefer post-enrichment journey aggregate when fully known.
         if (
@@ -118,12 +132,21 @@ def journeys_to_route_candidates(
         ):
             travel_min = float(journey.total_duration_seconds) / 60.0
             duration_status = ValueStatus.KNOWN.value
+            known_or_structural_minutes = True
         elif any_unavailable_duration:
             duration_status = ValueStatus.UNAVAILABLE.value
         elif any_unknown_duration:
             duration_status = ValueStatus.UNKNOWN.value
         else:
             duration_status = ValueStatus.KNOWN.value
+
+        # Never present unknown/unavailable road-only duration as 0 minutes.
+        # (Scoring still receives duration_status; 0 would look falsely fastest.)
+        if (
+            duration_status != ValueStatus.KNOWN.value
+            and not known_or_structural_minutes
+        ):
+            travel_min = 24.0 * 60.0  # explicit non-zero sentinel; status remains unknown
 
         walk_min = journey.walking_distance_meters / WALK_M_PER_MIN
         modes = journey.modes

@@ -35,4 +35,14 @@ PYTHONPATH=. .venv/bin/python scripts/phase6c_bmrcl_audit.py \
 Normalized snapshots: `snapshots/` (gitignored).  
 Audit reports: `audit/` (committed).
 
-Matching: exact seed-id aliases (`enrichment/station_id_aliases.json`) then exact normalized name. No blind fuzzy matching. Unmatched stations keep `latitude`/`longitude` = null.
+## Fares (Phase 7K-6)
+
+| Field | Value |
+| --- | --- |
+| Authority | **OFFICIAL** (BMRCL Revised Fare Chart 14.02.2025) |
+| Artifact | `fares/bmrcl_token_fare_slabs_v20250214.json` |
+| Source | https://english.bmrc.co.in:8282/English/uploads/news/english/fileuploads/Revised_Fare_Chart_for_webiste.pdf |
+| Metric | Stations travelled excluding originating station (token face fare) |
+
+Smart-card discounts are documented on the chart but not applied. FFC km-distance zones use the same rupee amounts but are not used here (no authoritative OD distances in the topology snapshot).
+

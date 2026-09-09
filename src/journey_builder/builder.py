@@ -30,12 +30,16 @@ from src.journey_builder.economics import (
     annotate_leg_economics,
     infer_segment_role,
     mode_signature,
+    reconcile_bmrcl_journey_fares,
 )
+from src.journey_builder.normalize import normalize_journey_legs
+from src.journey_builder.endpoints import EndpointKind, JourneyEndpoint
 from src.journey_builder.graph import (
     MobilityNetworkGraph,
     build_mobility_graph,
     haversine_m,
 )
+from src.network.endpoint_resolve import validate_node_in_graph
 from src.journey_builder.models import (
     EdgeKind,
     EnrichmentRequirement,
@@ -81,6 +85,144 @@ def _access_family(modes: Tuple[str, ...]) -> Optional[str]:
     return m
 
 
+def _is_transit_stop_kind(kind: NodeKind) -> bool:
+    return kind in {
+        NodeKind.BUS_STOP,
+        NodeKind.METRO_STATION,
+        NodeKind.INTERCHANGE,
+    }
+
+
+def _is_walk_access_transit(modes: Tuple[str, ...]) -> bool:
+    """True when journey starts with non-road access and includes transit."""
+    if _access_family(modes) == "road":
+        return False
+    return bool(transit_pattern(modes))
+
+
+def _is_road_access_journey(modes: Tuple[str, ...]) -> bool:
+    return _access_family(modes) == "road"
+
+
+@dataclass
+class _AccessDiscoveryState:
+    """
+    Access-discovery bookkeeping (search ordering only — not Decision Engine).
+
+    Road-access expansions are deferred until walk-access transit rides already
+    in the open set have been explored. When both OD ends have walk-access
+    rail (metro/interchange) stations, only metro-containing walk partials
+    block completion — dense BMTC walk graphs must not starve rail discovery
+    or block road-access collection indefinitely.
+    """
+
+    walk_transit_od_possible: bool
+    road_access_od_possible: bool
+    walk_rail_od_possible: bool = False
+    walk_access_transit_found: bool = False
+    walk_access_rail_found: bool = False
+    road_access_found: bool = False
+    walk_exploration_complete: bool = False
+    origin_expanded: bool = False
+    goal_id: str = DEST_ID
+
+    def should_defer_state(self, state: "_Partial") -> bool:
+        """Defer road (and pure-bus walk rides) until walk-rail discovery finishes."""
+        if not self.walk_transit_od_possible or self.walk_exploration_complete:
+            return False
+        if _is_road_access_journey(state.modes):
+            return True
+        if self.walk_rail_od_possible and not self.walk_access_rail_found:
+            tp = transit_pattern(state.modes)
+            if tp and "metro" not in tp:
+                return True
+        return False
+
+    def discovery_tier(self, state: "_Partial") -> int:
+        """0 = explore now; 1 = defer until walk-rail / walk-transit discovery done."""
+        return 1 if self.should_defer_state(state) else 0
+
+    def note_dest_reach(self, modes: Tuple[str, ...]) -> None:
+        if _is_walk_access_transit(modes):
+            self.walk_access_transit_found = True
+            collapsed = collapse_mode_tokens(modes)
+            # Walk-rail discovery completes on walk→…metro…→walk (walk egress),
+            # not on walk→metro→auto which can appear earlier via road egress.
+            if (
+                "metro" in collapsed
+                and collapsed
+                and collapsed[0] == "walk"
+                and collapsed[-1] == "walk"
+            ):
+                self.walk_access_rail_found = True
+            # Anchored destination: walk→…metro ending at station (no egress walk).
+            if (
+                "metro" in collapsed
+                and collapsed
+                and collapsed[0] == "walk"
+                and collapsed[-1] == "metro"
+                and self.goal_id != DEST_ID
+            ):
+                self.walk_access_rail_found = True
+            # Anchored origin: metro…→walk (no access walk).
+            if (
+                "metro" in collapsed
+                and collapsed
+                and collapsed[0] == "metro"
+                and collapsed[-1] == "walk"
+            ):
+                self.walk_access_rail_found = True
+            # Station→station: pure metro.
+            if collapsed == ("metro",) or (
+                collapsed and collapsed[0] == "metro" and collapsed[-1] == "metro"
+            ):
+                self.walk_access_rail_found = True
+        if _is_road_access_journey(modes):
+            self.road_access_found = True
+
+    def walk_transit_pending(self, heap: List[Tuple[Any, ...]]) -> bool:
+        """In-progress walk-access transit rides that still need expansion."""
+        for entry in heap:
+            state = entry[-1]
+            if state.node_id == self.goal_id:
+                continue
+            if _is_road_access_journey(state.modes):
+                continue
+            tp = transit_pattern(state.modes)
+            if not tp:
+                continue
+            if self.walk_rail_od_possible and "metro" not in tp:
+                continue
+            return True
+        return False
+
+    def refresh_walk_exploration(self, heap: List[Tuple[Any, ...]]) -> None:
+        if not self.walk_transit_od_possible:
+            self.walk_exploration_complete = True
+            return
+        if not self.origin_expanded:
+            return
+        if self.walk_rail_od_possible:
+            if self.walk_access_rail_found:
+                self.walk_exploration_complete = True
+            return
+        if self.walk_access_transit_found:
+            self.walk_exploration_complete = True
+
+    def soft_cap_blocked(self, heap: List[Tuple[Any, ...]]) -> bool:
+        if self.walk_rail_od_possible and not self.walk_access_rail_found:
+            return True
+        if (
+            self.walk_transit_od_possible
+            and not self.walk_rail_od_possible
+            and not self.walk_access_transit_found
+        ):
+            return True
+        if self.road_access_od_possible and not self.road_access_found:
+            return True
+        return False
+
+
 @dataclass(frozen=True)
 class _Partial:
     node_id: str
@@ -91,13 +233,14 @@ class _Partial:
     legs: int
     # Mode sequence (logical legs) — used for DEST dominance + diversity.
     modes: Tuple[str, ...] = ()
+    goal_id: str = DEST_ID
 
     @property
     def dominance_key(self) -> Tuple[Any, ...]:
         # Intermediate: (node, route, access_family) — collapse cab vs auto on
         # the same boarding, but do not let road prune walk (or vice versa).
         # Destination: full modes so road-direct variants stay distinct.
-        if self.node_id == DEST_ID:
+        if self.node_id == self.goal_id:
             return (self.node_id, self.last_transit_route, self.modes)
         return (
             self.node_id,
@@ -135,13 +278,15 @@ def _heuristic_m(
     node_id: str,
     dest_lat: float,
     dest_lon: float,
+    *,
+    goal_id: str = DEST_ID,
 ) -> float:
     """
     Admissible geographic heuristic: haversine to destination.
 
     Missing coordinates → 0 (never overestimates remaining distance).
     """
-    if node_id == DEST_ID:
+    if node_id == goal_id:
         return 0.0
     node = graph.nodes.get(node_id)
     if node is None or node.latitude is None or node.longitude is None:
@@ -155,6 +300,81 @@ def _g_cost(state: _Partial) -> float:
         state.walking_m
         + state.transfers * _TRANSFER_COST_M
         + state.legs * _LEG_COST_M
+    )
+
+
+def _node_has_transit_routes(
+    graph: MobilityNetworkGraph, node_id: str, constraints: JourneyConstraints
+) -> bool:
+    for edge in graph.outgoing(node_id):
+        if edge.kind not in _TRANSIT_KINDS or not edge.route_id:
+            continue
+        token = edge.mode.value if hasattr(edge.mode, "value") else str(edge.mode)
+        if constraints.mode_allowed(token):
+            return True
+    return False
+
+
+def _assess_access_discovery(
+    graph: MobilityNetworkGraph,
+    limits: SearchLimits,
+    constraints: JourneyConstraints,
+    *,
+    start_id: str = ORIGIN_ID,
+    goal_id: str = DEST_ID,
+) -> _AccessDiscoveryState:
+    """Detect whether walk-access / road-access transit discovery applies."""
+    walk_origin_transit = False
+    walk_origin_rail = False
+    if start_id == ORIGIN_ID:
+        for edge in graph.outgoing(ORIGIN_ID):
+            if edge.mode != MobilityMode.WALK or edge.to_node == goal_id:
+                continue
+            node = graph.nodes.get(edge.to_node)
+            if node is None or not _is_transit_stop_kind(node.kind):
+                continue
+            if _node_has_transit_routes(graph, edge.to_node, constraints):
+                walk_origin_transit = True
+                if node.kind in {NodeKind.METRO_STATION, NodeKind.INTERCHANGE}:
+                    walk_origin_rail = True
+    else:
+        node = graph.nodes.get(start_id)
+        if node is not None and _is_transit_stop_kind(node.kind):
+            if _node_has_transit_routes(graph, start_id, constraints):
+                walk_origin_transit = True
+                if node.kind in {NodeKind.METRO_STATION, NodeKind.INTERCHANGE}:
+                    walk_origin_rail = True
+
+    walk_dest_transit = False
+    walk_dest_rail = False
+    if goal_id == DEST_ID:
+        for edge in graph.edges.values():
+            if edge.to_node != DEST_ID or edge.mode != MobilityMode.WALK:
+                continue
+            node = graph.nodes.get(edge.from_node)
+            if node is not None and _is_transit_stop_kind(node.kind):
+                walk_dest_transit = True
+                if node.kind in {NodeKind.METRO_STATION, NodeKind.INTERCHANGE}:
+                    walk_dest_rail = True
+    else:
+        node = graph.nodes.get(goal_id)
+        if node is not None and _is_transit_stop_kind(node.kind):
+            walk_dest_transit = True
+            if node.kind in {NodeKind.METRO_STATION, NodeKind.INTERCHANGE}:
+                walk_dest_rail = True
+
+    road_access_od_possible = False
+    if limits.allow_road_access and start_id == ORIGIN_ID:
+        for edge in graph.outgoing(ORIGIN_ID):
+            if edge.kind == EdgeKind.ROAD_ACCESS:
+                road_access_od_possible = True
+                break
+
+    return _AccessDiscoveryState(
+        walk_transit_od_possible=walk_origin_transit and walk_dest_transit,
+        road_access_od_possible=road_access_od_possible,
+        walk_rail_od_possible=walk_origin_rail and walk_dest_rail,
+        goal_id=goal_id,
     )
 
 
@@ -193,8 +413,12 @@ def _alightings_along_route(
     return results
 
 
-def _can_egress_to_dest(graph: MobilityNetworkGraph, node_id: str) -> bool:
-    return any(e.to_node == DEST_ID for e in graph.outgoing(node_id))
+def _can_egress_to_dest(
+    graph: MobilityNetworkGraph, node_id: str, *, goal_id: str = DEST_ID
+) -> bool:
+    if node_id == goal_id:
+        return True
+    return any(e.to_node == goal_id for e in graph.outgoing(node_id))
 
 
 def _filter_alightings(
@@ -203,27 +427,30 @@ def _filter_alightings(
     alightings: List[Tuple[str, Tuple[str, ...], float]],
     dest_lat: float,
     dest_lon: float,
+    *,
+    goal_id: str = DEST_ID,
 ) -> List[Tuple[str, Tuple[str, ...], float]]:
     """
     Keep alightings that make geographic progress or can finish the journey.
 
     Avoids enqueueing every intermediate stop on long routes (branching),
-    while always retaining stops with an egress edge to the destination overlay.
+    while always retaining stops with an egress edge to the destination overlay
+    (or the anchored goal node itself).
     """
-    h_from = _heuristic_m(graph, from_node, dest_lat, dest_lon)
+    h_from = _heuristic_m(graph, from_node, dest_lat, dest_lon, goal_id=goal_id)
     kept: List[Tuple[str, Tuple[str, ...], float]] = []
     for to_node, eids, dist in alightings:
-        if _can_egress_to_dest(graph, to_node):
+        if _can_egress_to_dest(graph, to_node, goal_id=goal_id):
             kept.append((to_node, eids, dist))
             continue
-        h_to = _heuristic_m(graph, to_node, dest_lat, dest_lon)
+        h_to = _heuristic_m(graph, to_node, dest_lat, dest_lon, goal_id=goal_id)
         # Require strict geographic progress toward the destination.
         if h_to < h_from:
             kept.append((to_node, eids, dist))
     # Deterministic order: closer to dest first, then edge-id path.
     kept.sort(
         key=lambda t: (
-            _heuristic_m(graph, t[0], dest_lat, dest_lon),
+            _heuristic_m(graph, t[0], dest_lat, dest_lon, goal_id=goal_id),
             t[1],
         )
     )
@@ -261,6 +488,23 @@ class DynamicJourneyBuilder:
             self.repository,
             walk_transfer_meters=limits.max_walk_transfer_meters,
         )
+
+    def _published_transit_fare_rules(self) -> List[Any]:
+        """Published fare_rules from active snapshots (often empty for BMRCL)."""
+        getter = getattr(self.repository, "get_fare_rules", None)
+        if getter is None:
+            return []
+        try:
+            rules = list(getter() or [])
+        except Exception:
+            return []
+        out: List[Any] = []
+        for rule in rules:
+            if hasattr(rule, "to_dict"):
+                out.append(rule.to_dict())
+            else:
+                out.append(rule)
+        return out
 
     def build(self, request: JourneyBuildRequest) -> JourneyBuildResult:
         limits: SearchLimits = request.search_limits or self.default_limits
@@ -317,6 +561,22 @@ class DynamicJourneyBuilder:
             },
         )
 
+    def _endpoint_anchors(
+        self, request: JourneyBuildRequest, base: MobilityNetworkGraph
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Return (origin_node_id, dest_node_id) when endpoints are network nodes."""
+        o_ep = request.origin_endpoint
+        d_ep = request.destination_endpoint
+        o_id: Optional[str] = None
+        d_id: Optional[str] = None
+        if isinstance(o_ep, JourneyEndpoint) and o_ep.is_network_node and o_ep.node_id:
+            validate_node_in_graph(base, o_ep.node_id)
+            o_id = o_ep.node_id
+        if isinstance(d_ep, JourneyEndpoint) and d_ep.is_network_node and d_ep.node_id:
+            validate_node_in_graph(base, d_ep.node_id)
+            d_id = d_ep.node_id
+        return o_id, d_id
+
     def _overlay_access(
         self,
         base: MobilityNetworkGraph,
@@ -324,7 +584,11 @@ class DynamicJourneyBuilder:
         limits: SearchLimits,
         constraints: JourneyConstraints,
     ) -> MobilityNetworkGraph:
-        """Copy graph and attach origin/destination access edges (no fake roads)."""
+        """Copy graph and attach origin/destination access edges (no fake roads).
+
+        When an endpoint is an anchored network node, search starts/ends there —
+        no synthetic access/egress legs to that same node.
+        """
         g = MobilityNetworkGraph(
             nodes=dict(base.nodes),
             edges=dict(base.edges),
@@ -335,74 +599,109 @@ class DynamicJourneyBuilder:
         o_lat, o_lon = request.origin
         d_lat, d_lon = request.destination
         access_at = request.departure_time
+        origin_anchor, dest_anchor = self._endpoint_anchors(request, base)
 
-        g.add_node(
-            GraphNode(
-                id=ORIGIN_ID,
-                kind=NodeKind.ORIGIN,
-                name="Origin",
-                latitude=o_lat,
-                longitude=o_lon,
-            )
-        )
-        g.add_node(
-            GraphNode(
-                id=DEST_ID,
-                kind=NodeKind.DESTINATION,
-                name="Destination",
-                latitude=d_lat,
-                longitude=d_lon,
-            )
-        )
+        # Phase 7K-9: place endpoint already on a published node (≤1 m) →
+        # start/end there. Avoids zero-length access/egress and stop detours
+        # back to the same station.
+        def _nearest_within(lat: float, lon: float, radius_m: float):
+            best = None
+            for node in base.nodes.values():
+                if node.latitude is None or node.longitude is None:
+                    continue
+                if node.kind not in {
+                    NodeKind.BUS_STOP,
+                    NodeKind.METRO_STATION,
+                    NodeKind.INTERCHANGE,
+                }:
+                    continue
+                d = haversine_m(lat, lon, node.latitude, node.longitude)
+                if d <= radius_m and (best is None or d < best[0]):
+                    best = (d, node)
+            return best
 
-        # Direct walk if close enough
-        direct = haversine_m(o_lat, o_lon, d_lat, d_lon)
-        if (
-            constraints.mode_allowed(MobilityMode.WALK)
-            and direct <= limits.max_direct_walk_meters
-        ):
-            g.add_edge(
-                GraphEdge(
-                    id="walk:origin->destination",
-                    from_node=ORIGIN_ID,
-                    to_node=DEST_ID,
-                    kind=EdgeKind.WALK,
-                    mode=MobilityMode.WALK,
-                    distance_meters=direct,
-                    provenance=_access_prov("Direct walk OD", access_at),
-                    metadata={"segment_hint": SegmentRole.FULL_JOURNEY_ROAD.value},
+        if origin_anchor is None:
+            near_o = _nearest_within(o_lat, o_lon, 1.0)
+            if near_o is not None:
+                origin_anchor = near_o[1].id
+        if dest_anchor is None:
+            near_d = _nearest_within(d_lat, d_lon, 1.0)
+            if near_d is not None:
+                dest_anchor = near_d[1].id
+
+        start_id = origin_anchor or ORIGIN_ID
+        goal_id = dest_anchor or DEST_ID
+
+        if origin_anchor is None:
+            g.add_node(
+                GraphNode(
+                    id=ORIGIN_ID,
+                    kind=NodeKind.ORIGIN,
+                    name="Origin",
+                    latitude=o_lat,
+                    longitude=o_lon,
+                )
+            )
+        if dest_anchor is None:
+            g.add_node(
+                GraphNode(
+                    id=DEST_ID,
+                    kind=NodeKind.DESTINATION,
+                    name="Destination",
+                    latitude=d_lat,
+                    longitude=d_lon,
                 )
             )
 
-        # Full-journey road OD (cab/auto) — geometry/time via enrichment later.
-        if (
-            getattr(limits, "allow_direct_road", True)
-            and limits.allow_road_access
-            and direct <= limits.max_direct_road_meters
-        ):
-            for mode_token in limits.road_access_modes:
-                if not constraints.mode_allowed(mode_token):
-                    continue
-                mode = _mode_from_token(mode_token)
+        # Direct walk / road between effective endpoints (skip zero-length).
+        direct = haversine_m(o_lat, o_lon, d_lat, d_lon)
+        if start_id != goal_id and direct > 0.5:
+            if (
+                constraints.mode_allowed(MobilityMode.WALK)
+                and direct <= limits.max_direct_walk_meters
+            ):
                 g.add_edge(
                     GraphEdge(
-                        id=f"road:{mode.value}:origin->destination",
-                        from_node=ORIGIN_ID,
-                        to_node=DEST_ID,
-                        kind=EdgeKind.ROAD_DIRECT,
-                        mode=mode,
+                        id=f"walk:{start_id}->{goal_id}",
+                        from_node=start_id,
+                        to_node=goal_id,
+                        kind=EdgeKind.WALK,
+                        mode=MobilityMode.WALK,
                         distance_meters=direct,
-                        needs_enrichment=True,
-                        provenance=_access_prov(
-                            "Full OD road placeholder; geometry/time via enrichment",
-                            access_at,
-                        ),
+                        provenance=_access_prov("Direct walk OD", access_at),
                         metadata={
-                            "enrichment": "road_geometry_time",
-                            "segment_hint": SegmentRole.FULL_JOURNEY_ROAD.value,
+                            "segment_hint": SegmentRole.FULL_JOURNEY_ROAD.value
                         },
                     )
                 )
+            if (
+                getattr(limits, "allow_direct_road", True)
+                and limits.allow_road_access
+                and direct <= limits.max_direct_road_meters
+            ):
+                for mode_token in limits.road_access_modes:
+                    if not constraints.mode_allowed(mode_token):
+                        continue
+                    mode = _mode_from_token(mode_token)
+                    g.add_edge(
+                        GraphEdge(
+                            id=f"road:{mode.value}:{start_id}->{goal_id}",
+                            from_node=start_id,
+                            to_node=goal_id,
+                            kind=EdgeKind.ROAD_DIRECT,
+                            mode=mode,
+                            distance_meters=direct,
+                            needs_enrichment=True,
+                            provenance=_access_prov(
+                                "Full OD road placeholder; geometry/time via enrichment",
+                                access_at,
+                            ),
+                            metadata={
+                                "enrichment": "road_geometry_time",
+                                "segment_hint": SegmentRole.FULL_JOURNEY_ROAD.value,
+                            },
+                        )
+                    )
 
         # Collect access/egress candidates, then attach nearest-first within radius.
         access_candidates: List[Tuple[float, GraphNode]] = []
@@ -416,24 +715,31 @@ class DynamicJourneyBuilder:
                 NodeKind.INTERCHANGE,
             }:
                 continue
-            d_access = haversine_m(o_lat, o_lon, node.latitude, node.longitude)
-            d_egress = haversine_m(d_lat, d_lon, node.latitude, node.longitude)
-            if d_access <= max(
-                limits.max_walking_access_meters,
-                limits.max_road_access_meters if limits.allow_road_access else 0.0,
-            ):
-                access_candidates.append((d_access, node))
-            if d_egress <= max(
-                limits.max_walking_egress_meters,
-                limits.max_road_access_meters if limits.allow_road_access else 0.0,
-            ):
-                egress_candidates.append((d_egress, node))
+            # Never attach access/egress to an already-anchored endpoint node.
+            if origin_anchor is None:
+                d_access = haversine_m(o_lat, o_lon, node.latitude, node.longitude)
+                if d_access <= max(
+                    limits.max_walking_access_meters,
+                    limits.max_road_access_meters if limits.allow_road_access else 0.0,
+                ):
+                    access_candidates.append((d_access, node))
+            if dest_anchor is None:
+                d_egress = haversine_m(d_lat, d_lon, node.latitude, node.longitude)
+                if d_egress <= max(
+                    limits.max_walking_egress_meters,
+                    limits.max_road_access_meters if limits.allow_road_access else 0.0,
+                ):
+                    egress_candidates.append((d_egress, node))
 
         access_candidates.sort(key=lambda t: (t[0], t[1].id))
         egress_candidates.sort(key=lambda t: (t[0], t[1].id))
 
         origin_access_ids: List[str] = []
         dest_access_ids: List[str] = []
+        walk_bus_access_used = 0
+        walk_bus_egress_used = 0
+        max_walk_bus_access = int(getattr(limits, "max_walk_access_bus_stops", 25) or 0)
+        max_walk_bus_egress = int(getattr(limits, "max_walk_egress_bus_stops", 25) or 0)
 
         for d_access, node in access_candidates:
             linked = False
@@ -441,18 +747,25 @@ class DynamicJourneyBuilder:
                 constraints.mode_allowed(MobilityMode.WALK)
                 and d_access <= limits.max_walking_access_meters
             ):
-                g.add_edge(
-                    GraphEdge(
-                        id=f"walk:origin->{node.id}",
-                        from_node=ORIGIN_ID,
-                        to_node=node.id,
-                        kind=EdgeKind.WALK,
-                        mode=MobilityMode.WALK,
-                        distance_meters=d_access,
-                        provenance=_access_prov("Walking access", access_at),
+                allow_walk = True
+                if node.kind == NodeKind.BUS_STOP and max_walk_bus_access > 0:
+                    if walk_bus_access_used >= max_walk_bus_access:
+                        allow_walk = False
+                    else:
+                        walk_bus_access_used += 1
+                if allow_walk:
+                    g.add_edge(
+                        GraphEdge(
+                            id=f"walk:origin->{node.id}",
+                            from_node=ORIGIN_ID,
+                            to_node=node.id,
+                            kind=EdgeKind.WALK,
+                            mode=MobilityMode.WALK,
+                            distance_meters=d_access,
+                            provenance=_access_prov("Walking access", access_at),
+                        )
                     )
-                )
-                linked = True
+                    linked = True
             if limits.allow_road_access and d_access <= limits.max_road_access_meters:
                 for mode_token in limits.road_access_modes:
                     if not constraints.mode_allowed(mode_token):
@@ -484,18 +797,25 @@ class DynamicJourneyBuilder:
                 constraints.mode_allowed(MobilityMode.WALK)
                 and d_egress <= limits.max_walking_egress_meters
             ):
-                g.add_edge(
-                    GraphEdge(
-                        id=f"walk:{node.id}->destination",
-                        from_node=node.id,
-                        to_node=DEST_ID,
-                        kind=EdgeKind.WALK,
-                        mode=MobilityMode.WALK,
-                        distance_meters=d_egress,
-                        provenance=_access_prov("Walking egress", access_at),
+                allow_walk = True
+                if node.kind == NodeKind.BUS_STOP and max_walk_bus_egress > 0:
+                    if walk_bus_egress_used >= max_walk_bus_egress:
+                        allow_walk = False
+                    else:
+                        walk_bus_egress_used += 1
+                if allow_walk:
+                    g.add_edge(
+                        GraphEdge(
+                            id=f"walk:{node.id}->destination",
+                            from_node=node.id,
+                            to_node=DEST_ID,
+                            kind=EdgeKind.WALK,
+                            mode=MobilityMode.WALK,
+                            distance_meters=d_egress,
+                            provenance=_access_prov("Walking egress", access_at),
+                        )
                     )
-                )
-                linked = True
+                    linked = True
             if limits.allow_road_access and d_egress <= limits.max_road_access_meters:
                 for mode_token in limits.road_access_modes:
                     if not constraints.mode_allowed(mode_token):
@@ -521,13 +841,16 @@ class DynamicJourneyBuilder:
             if linked:
                 dest_access_ids.append(node.id)
 
-        # Stash for search metadata (not part of MobilityNetworkGraph contract).
-        g.provenance_notes = list(g.provenance_notes)  # ensure mutable copy
+        g.provenance_notes = list(g.provenance_notes)
         self._last_access_meta = {
             "origin_access_nodes": origin_access_ids,
             "destination_access_nodes": dest_access_ids,
             "origin_access_count": len(origin_access_ids),
             "destination_access_count": len(dest_access_ids),
+            "origin_anchor_node": origin_anchor,
+            "destination_anchor_node": dest_anchor,
+            "start_id": start_id,
+            "goal_id": goal_id,
         }
         return g
 
@@ -563,11 +886,12 @@ class DynamicJourneyBuilder:
         dest_lat: float,
         dest_lon: float,
         best: Dict[Tuple[Any, ...], Tuple[int, int, float]],
-        heap: List[Tuple[float, int, float, int, int, _Partial]],
+        heap: List[Tuple[int, float, int, float, int, int, _Partial]],
         alight_cache: Dict[Tuple[str, str], List[Tuple[str, Tuple[str, ...], float]]],
         tie: int,
         edges_considered: int,
         candidates_pruned: int,
+        discovery: _AccessDiscoveryState,
     ) -> Tuple[int, int, int]:
         """Expand transit as route-continuation rides (one logical leg each)."""
         for route_id in sorted(transit_routes):
@@ -575,7 +899,12 @@ class DynamicJourneyBuilder:
             if cache_key not in alight_cache:
                 raw = _alightings_along_route(graph, state.node_id, route_id)
                 alight_cache[cache_key] = _filter_alightings(
-                    graph, state.node_id, raw, dest_lat, dest_lon
+                    graph,
+                    state.node_id,
+                    raw,
+                    dest_lat,
+                    dest_lon,
+                    goal_id=state.goal_id,
                 )
             alightings = alight_cache[cache_key]
             if not alightings:
@@ -603,9 +932,10 @@ class DynamicJourneyBuilder:
                     last_transit_route=new_last,
                     legs=new_legs,
                     modes=state.modes + (ride_mode,),
+                    goal_id=state.goal_id,
                 )
                 if self._try_enqueue(
-                    nxt, best, heap, graph, dest_lat, dest_lon, tie
+                    nxt, best, heap, graph, dest_lat, dest_lon, tie, discovery
                 ):
                     tie += 1
                 else:
@@ -621,22 +951,47 @@ class DynamicJourneyBuilder:
         warnings: List[str],
     ) -> Tuple[List[Journey], Dict[str, Any]]:
         dest_lat, dest_lon = request.destination
+        access_meta = getattr(self, "_last_access_meta", {}) or {}
+        start_id = access_meta.get("start_id") or ORIGIN_ID
+        goal_id = access_meta.get("goal_id") or DEST_ID
+        # Fall back to explicit endpoint anchors when overlay meta missing.
+        if not access_meta:
+            origin_anchor, dest_anchor = self._endpoint_anchors(request, graph)
+            start_id = origin_anchor or ORIGIN_ID
+            goal_id = dest_anchor or DEST_ID
+        discovery = _assess_access_discovery(
+            graph, limits, constraints, start_id=start_id, goal_id=goal_id
+        )
         start = _Partial(
-            node_id=ORIGIN_ID,
+            node_id=start_id,
             edge_ids=(),
             transfers=0,
             walking_m=0.0,
             last_transit_route=None,
             legs=0,
             modes=(),
+            goal_id=goal_id,
         )
-        # Heap entries: (f, transfers, walking, legs, tie, state)
+        if start_id != ORIGIN_ID:
+            discovery.origin_expanded = True
+        # Heap: (discovery_tier, f, transfers, walking, legs, tie, state)
+        # discovery_tier separates access discovery from preference scoring.
         tie = 0
-        h0 = _heuristic_m(graph, start.node_id, dest_lat, dest_lon)
-        heap: List[Tuple[float, int, float, int, int, _Partial]] = []
+        h0 = _heuristic_m(
+            graph, start.node_id, dest_lat, dest_lon, goal_id=goal_id
+        )
+        heap: List[Tuple[int, float, int, float, int, int, _Partial]] = []
         heapq.heappush(
             heap,
-            (_g_cost(start) + h0, 0, 0.0, 0, tie, start),
+            (
+                discovery.discovery_tier(start),
+                _g_cost(start) + h0,
+                0,
+                0.0,
+                0,
+                tie,
+                start,
+            ),
         )
         best: Dict[Tuple[Any, ...], Tuple[int, int, float]] = {
             start.dominance_key: (0, 0, 0.0)
@@ -661,7 +1016,40 @@ class DynamicJourneyBuilder:
         alight_cache: Dict[Tuple[str, str], List[Tuple[str, Tuple[str, ...], float]]] = {}
 
         while heap:
-            _f_score, _, _, _, _, state = heapq.heappop(heap)
+            # Access discovery: finish walk-access transit rides before road.
+            if (
+                discovery.walk_transit_od_possible
+                and not discovery.walk_exploration_complete
+            ):
+                discovery.refresh_walk_exploration(heap)
+                if not discovery.walk_exploration_complete:
+                    deferred_road: List[
+                        Tuple[int, float, int, float, int, int, _Partial]
+                    ] = []
+                    while heap and discovery.should_defer_state(heap[0][-1]):
+                        deferred_road.append(heapq.heappop(heap))
+                    if not heap:
+                        discovery.walk_exploration_complete = True
+                        for _tier, f, tr, w, legs, t, st in deferred_road:
+                            heapq.heappush(heap, (0, f, tr, w, legs, t, st))
+                        deferred_road.clear()
+                        if not heap:
+                            break
+                    else:
+                        for item in deferred_road:
+                            heapq.heappush(heap, item)
+                else:
+                    # Walk-transit open set drained — equalize deferred road tiers.
+                    if any(entry[0] != 0 for entry in heap):
+                        heap[:] = [
+                            (0, f, tr, w, legs, t, st)
+                            for (_tier, f, tr, w, legs, t, st) in heap
+                        ]
+                        heapq.heapify(heap)
+
+            _tier, _f_score, _, _, _, _, state = heapq.heappop(heap)
+            if state.node_id == ORIGIN_ID:
+                discovery.origin_expanded = True
             nodes_explored += 1
             max_depth = max(max_depth, state.legs)
 
@@ -670,8 +1058,9 @@ class DynamicJourneyBuilder:
                 termination = "max_nodes_explored"
                 break
 
-            if state.node_id == DEST_ID and state.edge_ids:
+            if state.node_id == goal_id and state.edge_ids:
                 dest_reaches += 1
+                discovery.note_dest_reach(state.modes)
                 sig = collapse_mode_tokens(state.modes)
                 if sig_counts.get(sig, 0) >= _PER_SIGNATURE_CAP:
                     duplicate_signature_skipped += 1
@@ -682,12 +1071,13 @@ class DynamicJourneyBuilder:
 
                 patterns = {transit_pattern(s) for s in sig_counts}
                 patterns.discard(())  # ignore pure road / walk-only
-                if dest_reaches >= hard_cap:
+                caps_blocked = discovery.soft_cap_blocked(heap)
+                if dest_reaches >= hard_cap and not caps_blocked:
                     termination = "candidate_cap"
                     break
                 if dest_reaches >= soft_cap and len(patterns) >= 2:
-                    # ≥2 distinct transit projections (e.g. bmtc vs bmtc+metro)
-                    # after a soft collection window — not a mode quota.
+                    if caps_blocked:
+                        continue
                     termination = "candidate_cap"
                     break
                 continue
@@ -697,6 +1087,33 @@ class DynamicJourneyBuilder:
                 continue
 
             outgoing = sorted(graph.outgoing(state.node_id), key=lambda e: e.id)
+            if state.node_id == ORIGIN_ID:
+                # Prefer walk-access rail stations before bus/road for discovery.
+                def _origin_edge_key(edge: GraphEdge) -> Tuple[int, float, str]:
+                    node = graph.nodes.get(edge.to_node)
+                    if edge.mode == MobilityMode.WALK and node is not None:
+                        if node.kind in {
+                            NodeKind.METRO_STATION,
+                            NodeKind.INTERCHANGE,
+                        }:
+                            return (0, float(edge.distance_meters or 0.0), edge.id)
+                        if node.kind == NodeKind.BUS_STOP:
+                            return (1, float(edge.distance_meters or 0.0), edge.id)
+                    if edge.kind in {EdgeKind.ROAD_ACCESS, EdgeKind.ROAD_DIRECT}:
+                        return (3, float(edge.distance_meters or 0.0), edge.id)
+                    return (2, float(edge.distance_meters or 0.0), edge.id)
+
+                outgoing = sorted(graph.outgoing(ORIGIN_ID), key=_origin_edge_key)
+            elif discovery.walk_rail_od_possible and not discovery.walk_access_rail_found:
+                # Prefer walk egress to destination over road egress.
+                def _egress_pref(edge: GraphEdge) -> Tuple[int, str]:
+                    if edge.to_node == goal_id and edge.mode == MobilityMode.WALK:
+                        return (0, edge.id)
+                    if edge.to_node == goal_id:
+                        return (2, edge.id)
+                    return (1, edge.id)
+
+                outgoing = sorted(graph.outgoing(state.node_id), key=_egress_pref)
 
             # --- Non-transit single-hop expansions (walk / road / interchange) ---
             transit_routes: Set[str] = set()
@@ -740,9 +1157,17 @@ class DynamicJourneyBuilder:
                         last_transit_route=new_last,
                         legs=new_legs,
                         modes=state.modes + (edge.mode.value,),
+                        goal_id=state.goal_id,
                     )
                     if self._try_enqueue(
-                        nxt, best, heap, graph, dest_lat, dest_lon, tie
+                        nxt,
+                        best,
+                        heap,
+                        graph,
+                        dest_lat,
+                        dest_lon,
+                        tie,
+                        discovery,
                     ):
                         tie += 1
                     else:
@@ -751,6 +1176,15 @@ class DynamicJourneyBuilder:
 
                 # Walk / road / interchange / transfer_walk
                 interchange = edge.kind == EdgeKind.INTERCHANGE
+                # During walk-rail discovery, do not take road egress to dest
+                # before walk→metro→walk has been collected.
+                if (
+                    discovery.walk_rail_od_possible
+                    and not discovery.walk_access_rail_found
+                    and edge.to_node == goal_id
+                    and edge.kind == EdgeKind.ROAD_ACCESS
+                ):
+                    continue
                 new_transfers, new_last = self._transfer_delta(
                     state,
                     None,
@@ -785,8 +1219,11 @@ class DynamicJourneyBuilder:
                     ),
                     legs=new_legs,
                     modes=state.modes + (edge.mode.value,),
+                    goal_id=state.goal_id,
                 )
-                if self._try_enqueue(nxt, best, heap, graph, dest_lat, dest_lon, tie):
+                if self._try_enqueue(
+                    nxt, best, heap, graph, dest_lat, dest_lon, tie, discovery
+                ):
                     tie += 1
                 else:
                     dominance_pruned += 1
@@ -795,7 +1232,7 @@ class DynamicJourneyBuilder:
                 # transit immediately from the access stop so direct rides from
                 # every nearby stop enter the open set (not only the first stop
                 # A* happens to expand).
-                if state.node_id == ORIGIN_ID and nxt.node_id != DEST_ID:
+                if state.node_id == ORIGIN_ID and nxt.node_id != goal_id:
                     stop_routes = {
                         e.route_id
                         for e in graph.outgoing(nxt.node_id)
@@ -817,6 +1254,7 @@ class DynamicJourneyBuilder:
                             tie=tie,
                             edges_considered=edges_considered,
                             candidates_pruned=0,
+                            discovery=discovery,
                         )
                     )
                     dominance_pruned += board_pruned
@@ -835,6 +1273,7 @@ class DynamicJourneyBuilder:
                 tie=tie,
                 edges_considered=edges_considered,
                 candidates_pruned=0,
+                discovery=discovery,
             )
             dominance_pruned += board_pruned
 
@@ -850,7 +1289,11 @@ class DynamicJourneyBuilder:
         journeys = [
             self._materialize(graph, request, p, warnings) for p in partials
         ]
-        journeys = [j for j in journeys if j.temporal_feasibility != "infeasible"]
+        journeys = [
+            j
+            for j in journeys
+            if j.legs and j.temporal_feasibility != "infeasible"
+        ]
 
         access_meta = getattr(self, "_last_access_meta", {})
         generated_sigs = [
@@ -858,6 +1301,15 @@ class DynamicJourneyBuilder:
         ]
         metro_generated = sum(
             1 for p in found if "metro" in collapse_mode_tokens(p.modes)
+        )
+        walk_access_transit_generated = sum(
+            1 for p in found if _is_walk_access_transit(p.modes)
+        )
+        road_access_metro_generated = sum(
+            1
+            for p in found
+            if _is_road_access_journey(p.modes)
+            and "metro" in collapse_mode_tokens(p.modes)
         )
         meta = {
             "nodes_explored": nodes_explored,
@@ -878,9 +1330,20 @@ class DynamicJourneyBuilder:
             "destination_access_nodes": access_meta.get("destination_access_nodes", []),
             "origin_access_count": access_meta.get("origin_access_count", 0),
             "destination_access_count": access_meta.get("destination_access_count", 0),
+            "origin_anchor_node": access_meta.get("origin_anchor_node"),
+            "destination_anchor_node": access_meta.get("destination_anchor_node"),
+            "start_id": access_meta.get("start_id"),
+            "goal_id": access_meta.get("goal_id"),
             "heuristic": "haversine_to_destination",
             "route_continuation": True,
             "access_boarding_lookahead": True,
+            "access_discovery_walk_transit_od_possible": discovery.walk_transit_od_possible,
+            "access_discovery_walk_rail_od_possible": discovery.walk_rail_od_possible,
+            "access_discovery_road_access_od_possible": discovery.road_access_od_possible,
+            "access_discovery_walk_access_transit_found": discovery.walk_access_transit_found,
+            "access_discovery_walk_access_rail_found": discovery.walk_access_rail_found,
+            "access_discovery_road_access_found": discovery.road_access_found,
+            "access_discovery_walk_exploration_complete": discovery.walk_exploration_complete,
             "collection_soft_mult": _COLLECTION_SOFT_MULT,
             "collection_hard_mult": _COLLECTION_HARD_MULT,
             "collection_soft_cap": soft_cap,
@@ -891,6 +1354,8 @@ class DynamicJourneyBuilder:
                 s: generated_sigs.count(s) for s in sorted(set(generated_sigs))
             },
             "metro_containing_generated": metro_generated,
+            "walk_access_transit_generated": walk_access_transit_generated,
+            "road_access_metro_generated": road_access_metro_generated,
             "transit_patterns_generated": [
                 " → ".join(p) if p else "(none)"
                 for p in sorted({transit_pattern(s) for s in sig_counts})
@@ -905,22 +1370,33 @@ class DynamicJourneyBuilder:
         self,
         nxt: _Partial,
         best: Dict[Tuple[Any, ...], Tuple[int, int, float]],
-        heap: List[Tuple[float, int, float, int, int, _Partial]],
+        heap: List[Tuple[int, float, int, float, int, int, _Partial]],
         graph: MobilityNetworkGraph,
         dest_lat: float,
         dest_lon: float,
         tie: int,
+        discovery: _AccessDiscoveryState,
     ) -> bool:
         metrics = (nxt.transfers, nxt.legs, nxt.walking_m)
         prev = best.get(nxt.dominance_key)
         if prev is not None and metrics >= prev:
             return False
         best[nxt.dominance_key] = metrics
-        h = _heuristic_m(graph, nxt.node_id, dest_lat, dest_lon)
+        h = _heuristic_m(
+            graph, nxt.node_id, dest_lat, dest_lon, goal_id=nxt.goal_id
+        )
         f = _g_cost(nxt) + h
         heapq.heappush(
             heap,
-            (f, nxt.transfers, nxt.walking_m, nxt.legs, tie, nxt),
+            (
+                discovery.discovery_tier(nxt),
+                f,
+                nxt.transfers,
+                nxt.walking_m,
+                nxt.legs,
+                tie,
+                nxt,
+            ),
         )
         return True
 
@@ -934,7 +1410,6 @@ class DynamicJourneyBuilder:
         raw_edges = [graph.edges[eid] for eid in partial.edge_ids]
         compressed = _compress_edges(raw_edges)
         legs: List[JourneyLeg] = []
-        enrichments: List[EnrichmentRequirement] = []
         modes: List[str] = []
         prov_sources: List[str] = []
         transit_legs = 0
@@ -1003,22 +1478,49 @@ class DynamicJourneyBuilder:
                 provenance=edge.provenance,
                 metadata=dict(edge.metadata),
             )
-            leg = annotate_leg_economics(leg)
+            leg = annotate_leg_economics(
+                leg, fare_rules=self._published_transit_fare_rules()
+            )
             legs.append(leg)
-            if edge.needs_enrichment:
-                enrichments.append(
-                    EnrichmentRequirement(
-                        requirement_type="road_geometry_time",
-                        leg_index=idx,
-                        mode=edge.mode.value,
-                        from_lat=from_node.latitude,
-                        from_lon=from_node.longitude,
-                        to_lat=to_node.latitude,
-                        to_lon=to_node.longitude,
-                        notes="Resolve via live routing layer; not fabricated here.",
-                    )
-                )
 
+        fare_rules = self._published_transit_fare_rules()
+        legs = reconcile_bmrcl_journey_fares(legs, fare_rules=fare_rules)
+        # Phase 7K-9: drop zero-movement access/egress / self-transfer legs.
+        node_coords = {
+            nid: (n.latitude, n.longitude)
+            for nid, n in graph.nodes.items()
+            if n.latitude is not None and n.longitude is not None
+        }
+        legs = normalize_journey_legs(legs, node_coords=node_coords)
+        legs = reconcile_bmrcl_journey_fares(legs, fare_rules=fare_rules)
+        modes = [leg.mode.value for leg in legs]
+        transit_legs = sum(
+            1 for leg in legs if leg.edge_kind in {EdgeKind.BUS, EdgeKind.METRO}
+        )
+        road_legs = sum(
+            1
+            for leg in legs
+            if leg.edge_kind in {EdgeKind.ROAD_ACCESS, EdgeKind.ROAD_DIRECT}
+        )
+        transfers = sum(1 for leg in legs if leg.is_transfer)
+        enrichments: List[EnrichmentRequirement] = []
+        for i, leg in enumerate(legs):
+            if not leg.needs_enrichment:
+                continue
+            from_node = graph.nodes.get(leg.from_node_id)
+            to_node = graph.nodes.get(leg.to_node_id)
+            enrichments.append(
+                EnrichmentRequirement(
+                    requirement_type="road_geometry_time",
+                    leg_index=i,
+                    mode=leg.mode.value,
+                    from_lat=from_node.latitude if from_node else None,
+                    from_lon=from_node.longitude if from_node else None,
+                    to_lat=to_node.latitude if to_node else None,
+                    to_lon=to_node.longitude if to_node else None,
+                    notes="Resolve via live routing layer; not fabricated here.",
+                )
+            )
         econ = aggregate_journey_economics(legs)
 
         if schedule_known_any and not schedule_missing:
@@ -1085,6 +1587,14 @@ def _compress_edges(edges: List[GraphEdge]) -> List[GraphEdge]:
             dist = None
             if current.distance_meters is not None and nxt.distance_meters is not None:
                 dist = current.distance_meters + nxt.distance_meters
+            meta = dict(current.metadata)
+            cur_st = meta.get("stations_travelled")
+            nxt_st = (nxt.metadata or {}).get("stations_travelled")
+            if cur_st is not None and nxt_st is not None:
+                try:
+                    meta["stations_travelled"] = int(cur_st) + int(nxt_st)
+                except (TypeError, ValueError):
+                    pass
             current = GraphEdge(
                 id=f"{current.id}+{nxt.to_node}",
                 from_node=current.from_node,
@@ -1099,7 +1609,7 @@ def _compress_edges(edges: List[GraphEdge]) -> List[GraphEdge]:
                 confidence=current.confidence,
                 provenance=current.provenance,
                 schedule_meta=dict(current.schedule_meta),
-                metadata=dict(current.metadata),
+                metadata=meta,
             )
         else:
             out.append(current)

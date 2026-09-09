@@ -97,10 +97,16 @@ def enrich_road_legs(
                 traffic_info={
                     "congestion_score": best.congestion_score,
                     "mode": best.mode,
+                    "route_mode": getattr(best, "mode", None) or mode.value,
                 },
                 polyline=best.google_polyline,
                 route_token=best.google_route_token,
-                provenance={"source": "google_maps_routes"},
+                provenance={
+                    "source": "google_maps_routes",
+                    "provider": "Google Routes",
+                    "route_mode": mode.value,
+                    "leg_mode": req.mode,
+                },
                 reason="ok",
             )
         )

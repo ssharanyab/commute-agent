@@ -7,6 +7,11 @@ Does NOT hardcode journey templates, call live Maps APIs, or rank journeys.
 
 from src.journey_builder.builder import DynamicJourneyBuilder
 from src.journey_builder.constraints import JourneyConstraints, SearchLimits
+from src.journey_builder.endpoints import (
+    EndpointKind,
+    EndpointResolutionError,
+    JourneyEndpoint,
+)
 from src.journey_builder.graph import MobilityNetworkGraph, build_mobility_graph
 from src.journey_builder.models import (
     EnrichmentRequirement,
@@ -28,6 +33,9 @@ __all__ = [
     "SearchLimits",
     "MobilityNetworkGraph",
     "build_mobility_graph",
+    "EndpointKind",
+    "EndpointResolutionError",
+    "JourneyEndpoint",
     "EnrichmentRequirement",
     "GraphEdge",
     "GraphNode",

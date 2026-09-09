@@ -26,6 +26,49 @@ class PlaceSuggestion {
   }
 }
 
+/// Optional published mobility-node match from Places details.
+class NetworkNodeRef {
+  final String kind;
+  final String network;
+  final String nodeId;
+  final double? lat;
+  final double? lon;
+  final String? placeId;
+  final String? displayName;
+
+  const NetworkNodeRef({
+    required this.kind,
+    required this.network,
+    required this.nodeId,
+    this.lat,
+    this.lon,
+    this.placeId,
+    this.displayName,
+  });
+
+  factory NetworkNodeRef.fromJson(Map<String, dynamic> json) {
+    return NetworkNodeRef(
+      kind: (json['kind'] as String?) ?? 'network_node',
+      network: (json['network'] as String?) ?? '',
+      nodeId: (json['node_id'] as String?) ?? '',
+      lat: (json['lat'] as num?)?.toDouble(),
+      lon: (json['lon'] as num?)?.toDouble(),
+      placeId: json['place_id'] as String?,
+      displayName: json['display_name'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind,
+        'network': network,
+        'node_id': nodeId,
+        if (lat != null) 'lat': lat,
+        if (lon != null) 'lon': lon,
+        if (placeId != null) 'place_id': placeId,
+        if (displayName != null) 'display_name': displayName,
+      };
+}
+
 /// Resolved place with coordinates (from Places Details).
 class ResolvedPlace {
   final String placeId;
@@ -33,6 +76,7 @@ class ResolvedPlace {
   final String formattedAddress;
   final double latitude;
   final double longitude;
+  final NetworkNodeRef? networkNode;
 
   const ResolvedPlace({
     required this.placeId,
@@ -40,19 +84,55 @@ class ResolvedPlace {
     required this.formattedAddress,
     required this.latitude,
     required this.longitude,
+    this.networkNode,
   });
 
   String get displayLabel =>
       name.trim().isNotEmpty ? name : formattedAddress;
 
-  factory ResolvedPlace.fromJson(Map<String, dynamic> json) {
+  bool get isNetworkNode =>
+      networkNode != null && networkNode!.nodeId.trim().isNotEmpty;
+
+  factory ResolvedPlace.fromJson(
+    Map<String, dynamic> json, {
+    Map<String, dynamic>? networkNodeJson,
+  }) {
+    NetworkNodeRef? node;
+    final rawNode = networkNodeJson ?? json['network_node'];
+    if (rawNode is Map) {
+      node = NetworkNodeRef.fromJson(Map<String, dynamic>.from(rawNode));
+      if (node.nodeId.trim().isEmpty) node = null;
+    }
     return ResolvedPlace(
       placeId: (json['place_id'] as String?) ?? '',
       name: (json['name'] as String?) ?? '',
       formattedAddress: (json['formatted_address'] as String?) ?? '',
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
+      networkNode: node,
     );
+  }
+
+  Map<String, dynamic> toEndpointJson() {
+    if (isNetworkNode) {
+      final n = networkNode!;
+      return {
+        'kind': 'network_node',
+        'network': n.network,
+        'node_id': n.nodeId,
+        'lat': latitude,
+        'lon': longitude,
+        'place_id': placeId,
+        'display_name': displayLabel,
+      };
+    }
+    return {
+      'kind': 'place',
+      'lat': latitude,
+      'lon': longitude,
+      'place_id': placeId,
+      'display_name': displayLabel,
+    };
   }
 }
 
@@ -105,6 +185,12 @@ class PlacesApiClient {
     if (body is! Map || body['ok'] != true) return null;
     final place = body['place'];
     if (place is! Map) return null;
-    return ResolvedPlace.fromJson(Map<String, dynamic>.from(place));
+    final networkNode = body['network_node'];
+    return ResolvedPlace.fromJson(
+      Map<String, dynamic>.from(place),
+      networkNodeJson: networkNode is Map
+          ? Map<String, dynamic>.from(networkNode)
+          : null,
+    );
   }
 }

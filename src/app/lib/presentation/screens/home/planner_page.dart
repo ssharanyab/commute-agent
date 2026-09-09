@@ -102,6 +102,8 @@ class _PlannerPageState extends State<PlannerPage> {
       originLon: _originPlace?.longitude,
       destinationLat: _destinationPlace?.latitude,
       destinationLon: _destinationPlace?.longitude,
+      originEndpoint: _originPlace?.toEndpointJson(),
+      destinationEndpoint: _destinationPlace?.toEndpointJson(),
     );
 
     final ok = await provider.planCommute(baseUrl: base, request: request);

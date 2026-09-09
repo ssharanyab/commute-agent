@@ -282,6 +282,9 @@ class JourneyBuildRequest:
     departure_time: datetime
     constraints: Any = None  # JourneyConstraints — typed in constraints.py
     search_limits: Any = None  # SearchLimits
+    # Phase 7K-4: optional structured endpoints (place | network_node).
+    origin_endpoint: Any = None  # JourneyEndpoint | None
+    destination_endpoint: Any = None  # JourneyEndpoint | None
 
     @property
     def origin(self) -> Tuple[float, float]:

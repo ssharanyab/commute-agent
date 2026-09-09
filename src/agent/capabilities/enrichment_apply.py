@@ -21,11 +21,18 @@ def _maps_provenance(enrichment: TrafficEnrichmentResult) -> DataProvenance:
     from datetime import datetime, timezone
 
     src = (enrichment.provenance or {}).get("source") or "google_maps_routes"
+    provider = (enrichment.provenance or {}).get("provider") or "Google Routes"
+    notes = enrichment.reason or "road_geometry_time"
+    route_mode = (enrichment.provenance or {}).get("route_mode")
+    if route_mode:
+        notes = f"{notes}; route_mode={route_mode}; provider={provider}"
+    else:
+        notes = f"{notes}; provider={provider}"
     return DataProvenance(
         source=str(src),
         source_type=SourceType.COMMERCIAL_API,
         retrieved_at=datetime.now(timezone.utc),
-        notes=enrichment.reason or "road_geometry_time",
+        notes=notes,
         confidence=0.85 if enrichment.available else 0.0,
     )
 
@@ -183,7 +190,7 @@ def apply_traffic_enrichment_to_journey(
         if tag not in warnings:
             warnings.append(tag)
 
-    return Journey(
+    updated = Journey(
         candidate_id=journey.candidate_id,
         origin=journey.origin,
         destination=journey.destination,
@@ -216,6 +223,10 @@ def apply_traffic_enrichment_to_journey(
         egress_walking_meters=econ["egress_walking_meters"],
         mode_signature=journey.mode_signature,
     )
+    # Phase 7K-9: Maps may confirm zero-length road egress — drop it.
+    from src.journey_builder.normalize import apply_leg_normalization_to_journey
+
+    return apply_leg_normalization_to_journey(updated)
 
 
 def apply_enrichments(

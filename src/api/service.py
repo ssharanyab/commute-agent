@@ -215,6 +215,9 @@ def orchestrator_request_from_plan(
     *,
     invoke_live_traffic: Optional[bool] = None,
 ) -> OrchestratorRequest:
+    from src.journey_builder.endpoints import JourneyEndpoint
+    from src.network.endpoint_resolve import resolve_endpoint_for_plan
+
     prefs = _merge_preferences(
         body.preferences,
         objective=body.objective,
@@ -247,6 +250,83 @@ def orchestrator_request_from_plan(
     if body.destination_lat is not None and body.destination_lon is not None:
         d_lat, d_lon = body.destination_lat, body.destination_lon
 
+    # Prefer structured endpoint coords when present.
+    if body.origin_endpoint is not None:
+        if body.origin_endpoint.lat is not None and body.origin_endpoint.lon is not None:
+            o_lat, o_lon = body.origin_endpoint.lat, body.origin_endpoint.lon
+    if body.destination_endpoint is not None:
+        if (
+            body.destination_endpoint.lat is not None
+            and body.destination_endpoint.lon is not None
+        ):
+            d_lat, d_lon = body.destination_endpoint.lat, body.destination_endpoint.lon
+
+    repo = default_mobility_repository()
+    o_explicit = (
+        JourneyEndpoint.from_dict(body.origin_endpoint.model_dump())
+        if body.origin_endpoint is not None
+        else None
+    )
+    d_explicit = (
+        JourneyEndpoint.from_dict(body.destination_endpoint.model_dump())
+        if body.destination_endpoint is not None
+        else None
+    )
+    # When coords are still unresolved, leave endpoints unset so the orchestrator
+    # can return COORDINATES_UNRESOLVED (do not raise here).
+    origin_ep = None
+    dest_ep = None
+    if o_explicit is not None and o_explicit.is_network_node:
+        origin_ep = resolve_endpoint_for_plan(
+            repo,
+            explicit=o_explicit,
+            label=body.origin,
+            lat=o_lat,
+            lon=o_lon,
+            place_id=body.origin_endpoint.place_id if body.origin_endpoint else None,
+        )
+    elif o_lat is not None and o_lon is not None:
+        origin_ep = resolve_endpoint_for_plan(
+            repo,
+            explicit=o_explicit,
+            label=body.origin,
+            lat=o_lat,
+            lon=o_lon,
+            place_id=(
+                body.origin_endpoint.place_id if body.origin_endpoint is not None else None
+            ),
+        )
+    if d_explicit is not None and d_explicit.is_network_node:
+        dest_ep = resolve_endpoint_for_plan(
+            repo,
+            explicit=d_explicit,
+            label=body.destination,
+            lat=d_lat,
+            lon=d_lon,
+            place_id=(
+                body.destination_endpoint.place_id
+                if body.destination_endpoint is not None
+                else None
+            ),
+        )
+    elif d_lat is not None and d_lon is not None:
+        dest_ep = resolve_endpoint_for_plan(
+            repo,
+            explicit=d_explicit,
+            label=body.destination,
+            lat=d_lat,
+            lon=d_lon,
+            place_id=(
+                body.destination_endpoint.place_id
+                if body.destination_endpoint is not None
+                else None
+            ),
+        )
+    if origin_ep is not None and origin_ep.lat is not None and origin_ep.lon is not None:
+        o_lat, o_lon = origin_ep.lat, origin_ep.lon
+    if dest_ep is not None and dest_ep.lat is not None and dest_ep.lon is not None:
+        d_lat, d_lon = dest_ep.lat, dest_ep.lon
+
     if invoke_live_traffic is not None:
         traffic = invoke_live_traffic
     elif body.invoke_live_traffic is not None:
@@ -263,6 +343,8 @@ def orchestrator_request_from_plan(
         origin_lon=o_lon,
         destination_lat=d_lat,
         destination_lon=d_lon,
+        origin_endpoint=origin_ep,
+        destination_endpoint=dest_ep,
         preferences=prefs,
         origin_zone=body.origin_zone,
         destination_zone=body.destination_zone,

@@ -37,7 +37,11 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   Timer? _blurClear;
   List<PlaceSuggestion> _suggestions = const [];
   bool _loading = false;
-  bool _suppressNextSearch = false;
+  /// After a pick, ignore autocomplete until the user edits away from this text.
+  /// (One-shot suppress fails when TextEditingController notifies more than once.)
+  String? _committedText;
+  /// Bumps on select / clear so in-flight autocomplete cannot reopen the panel.
+  int _searchEpoch = 0;
 
   @override
   void initState() {
@@ -69,34 +73,43 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   }
 
   void _onTextChanged() {
-    if (_suppressNextSearch) {
-      _suppressNextSearch = false;
-      return;
+    final text = widget.controller.text;
+    if (_committedText != null) {
+      if (text == _committedText) {
+        // Programmatic fill or duplicate notify after select — keep panel closed.
+        return;
+      }
+      // User edited away from the selected label.
+      _committedText = null;
+      widget.onPlaceResolved(null);
+    } else {
+      // Typing clears prior coordinate binding until a suggestion is chosen
+      // (backend Google geocode can still resolve free text).
+      widget.onPlaceResolved(null);
     }
-    // Typing clears prior coordinate binding until a suggestion is chosen
-    // (backend Google geocode can still resolve free text).
-    widget.onPlaceResolved(null);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 320), _search);
   }
 
   Future<void> _search() async {
+    if (_committedText != null) return;
     final q = widget.controller.text.trim();
     final base = widget.baseUrl.trim();
     if (q.length < 2 || base.isEmpty) {
       if (mounted) setState(() => _suggestions = const []);
       return;
     }
+    final epoch = ++_searchEpoch;
     setState(() => _loading = true);
     try {
       final results = await _client.autocomplete(baseUrl: base, query: q);
-      if (!mounted) return;
+      if (!mounted || epoch != _searchEpoch || _committedText != null) return;
       setState(() {
         _suggestions = results;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || epoch != _searchEpoch || _committedText != null) return;
       setState(() {
         _suggestions = const [];
         _loading = false;
@@ -105,25 +118,38 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   }
 
   Future<void> _select(PlaceSuggestion suggestion) async {
+    // Close immediately on tap (before details round-trip).
+    _debounce?.cancel();
+    _searchEpoch++;
     setState(() {
       _loading = true;
       _suggestions = const [];
     });
+
     try {
       final place = await _client.details(
         baseUrl: widget.baseUrl.trim(),
         placeId: suggestion.placeId,
       );
       if (!mounted) return;
-      _suppressNextSearch = true;
-      widget.controller.text =
-          place?.displayLabel.isNotEmpty == true
-              ? place!.displayLabel
-              : suggestion.mainText;
+      final label = place?.displayLabel.isNotEmpty == true
+          ? place!.displayLabel
+          : suggestion.mainText;
+      // Commit before mutating text so every subsequent notify is ignored.
+      _committedText = label;
+      widget.controller.value = TextEditingValue(
+        text: label,
+        selection: TextSelection.collapsed(offset: label.length),
+      );
       widget.onPlaceResolved(place);
       _focus.unfocus();
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _suggestions = const [];
+        });
+      }
     }
   }
 

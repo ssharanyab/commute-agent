@@ -26,6 +26,8 @@ def build_candidate_journeys(
     constraints: Optional[JourneyConstraints] = None,
     search_limits: Optional[SearchLimits] = None,
     builder: Optional[DynamicJourneyBuilder] = None,
+    origin_endpoint=None,
+    destination_endpoint=None,
 ) -> JourneyBuildResult:
     """Invoke the Phase 5C Journey Builder. Does not hardcode journeys."""
     jb = builder or DynamicJourneyBuilder(repository)
@@ -37,5 +39,7 @@ def build_candidate_journeys(
         departure_time=departure_time,
         constraints=constraints or JourneyConstraints(),
         search_limits=search_limits,
+        origin_endpoint=origin_endpoint,
+        destination_endpoint=destination_endpoint,
     )
     return jb.build(request)

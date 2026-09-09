@@ -236,9 +236,13 @@ def test_road_direct_survives_api(client):
 def test_multimodal_structure_survives(client):
     res = client.post("/plan", json=_plan_body())
     body = res.json()
-    multi = [j for j in body.get("journeys") or [] if len(j.get("legs") or []) >= 2]
-    assert multi, "expected multimodal/multi-leg candidates from corridor fixture"
-    for j in multi:
+    journeys = body.get("journeys") or []
+    assert journeys, "expected journey candidates from corridor fixture"
+    # Fixture places stops on OD coords; Phase 7K-9 collapses 0 m access/egress
+    # so walk→bus→walk may become a single bus leg. Multi-leg journeys, when
+    # present, must still serialize cleanly.
+    multi = [j for j in journeys if len(j.get("legs") or []) >= 2]
+    for j in multi or journeys:
         for leg in j["legs"]:
             assert leg.get("mode")
             assert "duration_minutes" in leg or "distance_meters" in leg

@@ -13,20 +13,42 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from src.journey_builder.models import Journey, JourneyLeg
 
 
+def _normalize_mode_token(raw: str) -> str:
+    token = str(raw).strip().lower()
+    if token == "auto_rickshaw":
+        return "auto"
+    if token == "bus":
+        return "bmtc"
+    if token in {"walking"}:
+        return "walk"
+    if token in {"taxi", "rideshare"}:
+        return "cab"
+    return token
+
+
 def collapse_mode_tokens(modes: Sequence[str]) -> Tuple[str, ...]:
     """Normalize mode tokens and collapse consecutive duplicates."""
     parts: List[str] = []
     for raw in modes:
-        token = str(raw).strip().lower()
-        if token == "auto_rickshaw":
-            token = "auto"
-        elif token == "bus":
-            token = "bmtc"
-        elif token in {"walking"}:
-            token = "walk"
+        token = _normalize_mode_token(raw)
         if not parts or parts[-1] != token:
             parts.append(token)
     return tuple(parts)
+
+
+def is_redundant_road_only_chain(modes: Sequence[str]) -> bool:
+    """
+    True for pure road-family chains with multiple road legs and no walk/transit.
+
+    Drops auto→cab, cab→auto, auto→auto, cab→cab, etc.
+    Keeps single-leg road OD and any journey with walk/bus/metro backbone.
+    """
+    normalized = [_normalize_mode_token(m) for m in modes]
+    if not normalized:
+        return False
+    if any(t not in {"auto", "cab"} for t in normalized):
+        return False
+    return len(normalized) > 1
 
 
 def audit_mode_signature(modes: Sequence[str]) -> str:
@@ -71,11 +93,19 @@ def select_diverse_journeys(
     within each signature). Does not invent modes or force quotas by mode family.
     """
     if max_candidates <= 0 or not journeys:
-        return [], {"diverse_selected": 0, "per_signature_cap": per_signature}
+        return [], {
+            "diverse_selected": 0,
+            "per_signature_cap": per_signature,
+            "redundant_road_chains_pruned": 0,
+        }
 
     by_sig: Dict[Tuple[str, ...], List[Journey]] = defaultdict(list)
     order: List[Tuple[str, ...]] = []
+    road_pruned = 0
     for j in journeys:
+        if is_redundant_road_only_chain(j.modes):
+            road_pruned += 1
+            continue
         sig = collapse_mode_tokens(j.modes)
         if sig not in by_sig:
             order.append(sig)
@@ -103,6 +133,7 @@ def select_diverse_journeys(
         "per_signature_cap": per_signature,
         "signatures_considered": len(order),
         "signature_list": [" → ".join(s) for s in order],
+        "redundant_road_chains_pruned": road_pruned,
     }
 
 
@@ -117,8 +148,13 @@ def select_diverse_partials(
     counts: Counter = Counter()
     kept: List[Any] = []
     skipped = 0
+    road_pruned = 0
     for p in partials:
-        sig = collapse_mode_tokens(getattr(p, modes_attr))
+        modes = getattr(p, modes_attr)
+        if is_redundant_road_only_chain(modes):
+            road_pruned += 1
+            continue
+        sig = collapse_mode_tokens(modes)
         if counts[sig] >= per_signature:
             skipped += 1
             continue
@@ -130,4 +166,5 @@ def select_diverse_partials(
         "partials_kept": len(kept),
         "partials_skipped_duplicate_signature": skipped,
         "unique_signatures": len(counts),
+        "redundant_road_chains_pruned": road_pruned,
     }

@@ -31,6 +31,11 @@ class SearchLimits:
     max_legs: int = 8
     max_candidates: int = 20
     max_nodes_explored: int = 5000
+    # Nearest-first cap on walk-access BUS stops only (metro/interchange uncapped
+    # within walking radius). Keeps access discovery focused on nearby transit
+    # without starving road-access collection.
+    max_walk_access_bus_stops: int = 25
+    max_walk_egress_bus_stops: int = 25
     allow_road_access: bool = True
     allow_direct_road: bool = True
     road_access_modes: tuple = (
@@ -50,6 +55,8 @@ class SearchLimits:
             "max_legs": self.max_legs,
             "max_candidates": self.max_candidates,
             "max_nodes_explored": self.max_nodes_explored,
+            "max_walk_access_bus_stops": self.max_walk_access_bus_stops,
+            "max_walk_egress_bus_stops": self.max_walk_egress_bus_stops,
             "allow_road_access": self.allow_road_access,
             "allow_direct_road": self.allow_direct_road,
             "road_access_modes": list(self.road_access_modes),

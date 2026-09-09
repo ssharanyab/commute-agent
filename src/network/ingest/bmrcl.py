@@ -49,6 +49,15 @@ DEFAULT_BMRCL_SEED = (
     / "bmrcl_network_seed.json"
 )
 
+DEFAULT_BMRCL_FARE_RULES = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "mobility_network"
+    / "bmrcl"
+    / "fares"
+    / "bmrcl_token_fare_slabs_v20250214.json"
+)
+
 
 class BmrclSeedFetcher(Fetcher):
     def __init__(self, seed_path: Path | str = DEFAULT_BMRCL_SEED):
@@ -192,8 +201,14 @@ class BmrclSeedNormalizer(Normalizer):
             )
 
         fare_rules = list(parsed.get("fare_rules") or [])
+        if not fare_rules and DEFAULT_BMRCL_FARE_RULES.exists():
+            fare_doc = json.loads(
+                DEFAULT_BMRCL_FARE_RULES.read_text(encoding="utf-8")
+            )
+            fare_rules = list(fare_doc.get("fare_rules") or [])
         for fr in fare_rules:
-            fr.setdefault("provenance", prov.to_dict())
+            if "provenance" not in fr:
+                fr["provenance"] = prov.to_dict()
             fr.setdefault("provider", "BMRCL")
             fr.setdefault("network", "bmrcl")
             fr.setdefault("mode", "metro")

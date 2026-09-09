@@ -278,9 +278,11 @@ class TestUnknownCostSemantics:
         cands = journeys_to_route_candidates([j])
         assert cands[0].cost_status == "unknown"
         assert cands[0].cost == 0.0  # placeholder only
-        # Without enrichment, duration unknown — not invented as 15 min preferred
+        # Without enrichment, duration unknown — not invented as a short trip,
+        # and not presented as 0 minutes (which would falsely win FASTEST).
         assert cands[0].duration_status == "unknown"
-        assert cands[0].travel_time_minutes == 0.0  # no known leg minutes
+        assert cands[0].travel_time_minutes != 0.0
+        assert cands[0].travel_time_minutes >= 24.0 * 60.0
 
     def test_partial_cost_aggregation(self):
         legs = [

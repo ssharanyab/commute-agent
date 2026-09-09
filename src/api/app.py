@@ -18,6 +18,11 @@ from src.planner.models import InvalidCommuteRequest, InvalidReplanInput
 _CLIENT_ERRORS = {
     "COORDINATES_UNRESOLVED",
     "INVALID_REQUEST",
+    "INVALID_ENDPOINT",
+    "INVALID_ENDPOINT_KIND",
+    "INVALID_NETWORK_NODE",
+    "INVALID_PLACE_ENDPOINT",
+    "UNKNOWN_NETWORK_NODE",
 }
 _NOT_FOUND_ERRORS = {
     "NO_ROUTES",
@@ -83,8 +88,10 @@ def create_app() -> FastAPI:
 
     @app.get("/places/details")
     def places_details_endpoint(place_id: str = "") -> Dict[str, Any]:
-        """Resolve a Places place_id to lat/lon for Flutter plan requests."""
+        """Resolve a Places place_id to lat/lon (+ optional network-node match)."""
         from src.mobility.geocoding import place_details
+        from src.network.endpoint_resolve import match_place_to_network_node
+        from src.api.service import default_mobility_repository
 
         details, err = place_details(place_id)
         if details is None:
@@ -92,12 +99,50 @@ def create_app() -> FastAPI:
                 "ok": False,
                 "error": err or "not_found",
                 "place": None,
+                "network_node": None,
                 "configured": err != "missing_api_key",
             }
+        place = details.to_dict()
+        network_node = None
+        repo = default_mobility_repository()
+        if repo is not None:
+            # Conservative: proximity-only snap when Places types unavailable.
+            # Require very tight distance; Flutter may still send kind=place.
+            types = list(getattr(details, "types", None) or [])
+            match = match_place_to_network_node(
+                repo,
+                lat=details.latitude,
+                lon=details.longitude,
+                place_types=types,
+                display_name=details.name,
+                place_id=details.place_id,
+                require_transit_type_hint=True,
+            ) if types else None
+            # Without types, only snap inside 15m (pin essentially on published node).
+            if match is None and not types:
+                match = match_place_to_network_node(
+                    repo,
+                    lat=details.latitude,
+                    lon=details.longitude,
+                    place_types=None,
+                    display_name=details.name,
+                    place_id=details.place_id,
+                    max_distance_m=15.0,
+                    require_transit_type_hint=False,
+                )
+            if match is not None:
+                ep = match.to_endpoint(
+                    lat=details.latitude,
+                    lon=details.longitude,
+                    place_id=details.place_id,
+                    display_name=details.name,
+                )
+                network_node = ep.to_dict()
         return {
             "ok": True,
             "error": None,
-            "place": details.to_dict(),
+            "place": place,
+            "network_node": network_node,
             "configured": True,
         }
 

@@ -42,7 +42,7 @@ _AUTOCOMPLETE_FIELD_MASK = (
     "suggestions.placePrediction.text,"
     "suggestions.placePrediction.structuredFormat"
 )
-_DETAILS_FIELD_MASK = "id,displayName,formattedAddress,location"
+_DETAILS_FIELD_MASK = "id,displayName,formattedAddress,location,types,primaryType"
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,7 @@ class PlaceDetails:
     formatted_address: str
     latitude: float
     longitude: float
+    types: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -84,6 +85,7 @@ class PlaceDetails:
             "formatted_address": self.formatted_address,
             "latitude": self.latitude,
             "longitude": self.longitude,
+            "types": list(self.types),
         }
 
 
@@ -408,12 +410,20 @@ def place_details(
         if isinstance(display, dict)
         else str(display or "")
     )
+    types_raw = payload.get("types") or []
+    types: Tuple[str, ...] = tuple(
+        str(t) for t in types_raw if t
+    ) if isinstance(types_raw, list) else ()
+    primary = payload.get("primaryType")
+    if primary and str(primary) not in types:
+        types = types + (str(primary),)
     details = PlaceDetails(
         place_id=_normalize_place_id(str(payload.get("id") or pid)),
         name=name,
         formatted_address=str(payload.get("formattedAddress") or ""),
         latitude=lat,
         longitude=lng,
+        types=types,
     )
     logger.info(
         "place_details success place_id=%r lat=%.5f lon=%.5f",

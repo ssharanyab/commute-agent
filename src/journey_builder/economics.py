@@ -47,8 +47,8 @@ def infer_segment_role(
             return SegmentRole.EGRESS
         return SegmentRole.TRANSFER
     if edge_kind == EdgeKind.WALK:
-        if is_only and from_node_id.startswith("access:origin"):
-            return SegmentRole.FULL_JOURNEY_ROAD  # walk-only OD
+        if is_only:
+            return SegmentRole.FULL_JOURNEY_ROAD
         if from_node_id.startswith("access:origin") or (
             is_first and not to_node_id.startswith("access:destination")
         ):
@@ -97,7 +97,11 @@ def _auto_fare_estimate_inr(distance_meters: Optional[float]) -> Tuple[Optional[
         return None, ValueStatus.UNKNOWN.value, {"reason": f"auto_fare_error:{type(exc).__name__}"}
 
 
-def annotate_leg_economics(leg: JourneyLeg) -> JourneyLeg:
+def annotate_leg_economics(
+    leg: JourneyLeg,
+    *,
+    fare_rules: Optional[List[Any]] = None,
+) -> JourneyLeg:
     """Fill cost/duration/walking fields on a single leg (immutable → replace)."""
     walk_m = 0.0
     if leg.mode == MobilityMode.WALK:
@@ -121,33 +125,68 @@ def annotate_leg_economics(leg: JourneyLeg) -> JourneyLeg:
             "note": "No live cab-price provider; cost remains unknown (not fabricated).",
         }
     elif leg.mode in {MobilityMode.BUS, MobilityMode.METRO}:
-        cost = None
-        cost_status = ValueStatus.UNKNOWN.value
-        cost_meta = {"fare_kind": "transit_fare_not_applied_in_builder"}
+        from src.network.transit_fares import lookup_transit_fare_inr
+
+        stations_travelled = None
+        raw_st = (leg.metadata or {}).get("stations_travelled")
+        if raw_st is not None:
+            try:
+                stations_travelled = int(raw_st)
+            except (TypeError, ValueError):
+                stations_travelled = None
+
+        cost, cost_status, cost_meta = lookup_transit_fare_inr(
+            mode=leg.mode,
+            from_station_id=leg.from_ref,
+            to_station_id=leg.to_ref,
+            route_id=leg.route_id,
+            fare_rules=fare_rules,
+            stations_travelled=stations_travelled,
+        )
 
     duration: Optional[float] = None
     duration_status = ValueStatus.UNKNOWN.value
+    duration_meta: Dict[str, Any] = {}
     dist = float(leg.distance_meters or 0.0)
     if leg.mode == MobilityMode.WALK and dist > 0:
         duration = dist / WALK_M_PER_S
         duration_status = ValueStatus.KNOWN.value
+        duration_meta = {"duration_kind": "walk_geometry"}
     elif leg.needs_enrichment:
         duration = None
         duration_status = ValueStatus.UNKNOWN.value  # await Maps enrichment
+        duration_meta = {"duration_kind": "awaiting_road_enrichment"}
     elif leg.mode == MobilityMode.BUS and dist > 0:
         duration = dist / BUS_M_PER_S
         duration_status = ValueStatus.UNKNOWN.value  # structural estimate only
+        duration_meta = {
+            "duration_kind": "structural_speed_estimate",
+            "speed_m_per_s": BUS_M_PER_S,
+            "note": "Not timetable-derived; status remains unknown.",
+        }
     elif leg.mode == MobilityMode.METRO and dist > 0:
         duration = dist / METRO_M_PER_S
         duration_status = ValueStatus.UNKNOWN.value
+        duration_meta = {
+            "duration_kind": "structural_speed_estimate",
+            "speed_m_per_s": METRO_M_PER_S,
+            "distance_basis": "station_coordinate_haversine",
+            "note": (
+                "No authoritative BMRCL timetable in published snapshot. "
+                "Haversine hop distance × structural metro speed; not known."
+            ),
+        }
     elif leg.mode in {MobilityMode.AUTO_RICKSHAW, MobilityMode.CAB} and dist > 0:
         # Haversine/placeholder speed until enrichment; still unknown traffic time.
         duration = dist / (400.0 / 60.0)
         duration_status = ValueStatus.UNKNOWN.value
+        duration_meta = {"duration_kind": "structural_speed_estimate_pre_enrichment"}
 
     meta = dict(leg.metadata)
     if cost_meta:
         meta["cost_meta"] = cost_meta
+    if duration_meta:
+        meta["duration_meta"] = duration_meta
 
     return JourneyLeg(
         index=leg.index,
@@ -177,6 +216,168 @@ def annotate_leg_economics(leg: JourneyLeg) -> JourneyLeg:
         provenance=leg.provenance,
         metadata=meta,
     )
+
+
+def _is_bmrcl_paid_area_connector(leg: JourneyLeg) -> bool:
+    """Walk/interchange inside paid metro area between BMRCL metro segments."""
+    if leg.mode != MobilityMode.WALK:
+        return False
+    if leg.edge_kind in {EdgeKind.INTERCHANGE, EdgeKind.TRANSFER_WALK}:
+        return True
+    if leg.is_transfer or leg.segment_role == SegmentRole.TRANSFER:
+        return True
+    meta = leg.metadata or {}
+    return bool(meta.get("interchange"))
+
+
+def reconcile_bmrcl_journey_fares(
+    legs: List[JourneyLeg],
+    *,
+    fare_rules: Optional[List[Any]] = None,
+) -> List[JourneyLeg]:
+    """
+    One continuous BMRCL paid ride → one token fare (no per-segment double count).
+
+    Metro legs separated only by paid-area interchange/transfer walk share one
+    fare based on summed stations_travelled. Metro legs separated by bus/road
+    are separate tickets.
+    """
+    if not legs:
+        return legs
+
+    from src.network.transit_fares import fare_for_stations_travelled, select_bmrcl_token_fare_rule
+
+    rule = select_bmrcl_token_fare_rule(fare_rules)
+    out = list(legs)
+    i = 0
+    while i < len(out):
+        leg = out[i]
+        if leg.mode != MobilityMode.METRO:
+            i += 1
+            continue
+        if leg.provider and str(leg.provider).upper() not in {"BMRCL"}:
+            i += 1
+            continue
+
+        span_metro_idx: List[int] = [i]
+        j = i + 1
+        while j < len(out):
+            nxt = out[j]
+            if nxt.mode == MobilityMode.METRO:
+                span_metro_idx.append(j)
+                j += 1
+                continue
+            if (
+                _is_bmrcl_paid_area_connector(nxt)
+                and j + 1 < len(out)
+                and out[j + 1].mode == MobilityMode.METRO
+            ):
+                j += 1
+                continue
+            break
+
+        if len(span_metro_idx) == 1 and rule is None:
+            i = span_metro_idx[-1] + 1
+            continue
+
+        stations_total = 0
+        missing = False
+        for idx in span_metro_idx:
+            raw = (out[idx].metadata or {}).get("stations_travelled")
+            if raw is None:
+                missing = True
+                break
+            try:
+                stations_total += int(raw)
+            except (TypeError, ValueError):
+                missing = True
+                break
+
+        if missing or rule is None:
+            # Keep per-leg annotate results (unknown if no hop count).
+            i = span_metro_idx[-1] + 1
+            continue
+
+        amount, status, fare_meta = fare_for_stations_travelled(
+            stations_total, rule=rule
+        )
+        fare_meta = dict(fare_meta)
+        fare_meta["bmrcl_paid_span_metro_legs"] = list(span_metro_idx)
+        fare_meta["stations_travelled_span_total"] = stations_total
+
+        for k, idx in enumerate(span_metro_idx):
+            old = out[idx]
+            meta = dict(old.metadata or {})
+            if k == 0:
+                meta["cost_meta"] = fare_meta
+                out[idx] = JourneyLeg(
+                    index=old.index,
+                    mode=old.mode,
+                    from_node_id=old.from_node_id,
+                    to_node_id=old.to_node_id,
+                    edge_id=old.edge_id,
+                    edge_kind=old.edge_kind,
+                    from_ref=old.from_ref,
+                    to_ref=old.to_ref,
+                    from_name=old.from_name,
+                    to_name=old.to_name,
+                    route_id=old.route_id,
+                    provider=old.provider,
+                    distance_meters=old.distance_meters,
+                    is_transfer=old.is_transfer,
+                    needs_enrichment=old.needs_enrichment,
+                    estimated_departure=old.estimated_departure,
+                    estimated_arrival=old.estimated_arrival,
+                    waiting_seconds=old.waiting_seconds,
+                    segment_role=old.segment_role,
+                    cost_inr=amount,
+                    cost_status=status,
+                    duration_seconds=old.duration_seconds,
+                    duration_status=old.duration_status,
+                    walking_meters=old.walking_meters,
+                    provenance=old.provenance,
+                    metadata=meta,
+                )
+            else:
+                meta["cost_meta"] = {
+                    "fare_kind": "bmrcl_fare_included_in_prior_metro_leg",
+                    "included_in_leg_index": span_metro_idx[0],
+                    "stations_travelled_this_leg": (old.metadata or {}).get(
+                        "stations_travelled"
+                    ),
+                }
+                out[idx] = JourneyLeg(
+                    index=old.index,
+                    mode=old.mode,
+                    from_node_id=old.from_node_id,
+                    to_node_id=old.to_node_id,
+                    edge_id=old.edge_id,
+                    edge_kind=old.edge_kind,
+                    from_ref=old.from_ref,
+                    to_ref=old.to_ref,
+                    from_name=old.from_name,
+                    to_name=old.to_name,
+                    route_id=old.route_id,
+                    provider=old.provider,
+                    distance_meters=old.distance_meters,
+                    is_transfer=old.is_transfer,
+                    needs_enrichment=old.needs_enrichment,
+                    estimated_departure=old.estimated_departure,
+                    estimated_arrival=old.estimated_arrival,
+                    waiting_seconds=old.waiting_seconds,
+                    segment_role=old.segment_role,
+                    cost_inr=0.0,
+                    cost_status=ValueStatus.KNOWN.value,
+                    duration_seconds=old.duration_seconds,
+                    duration_status=old.duration_status,
+                    walking_meters=old.walking_meters,
+                    provenance=old.provenance,
+                    metadata=meta,
+                )
+
+        i = span_metro_idx[-1] + 1
+
+    return out
 
 
 def aggregate_journey_economics(

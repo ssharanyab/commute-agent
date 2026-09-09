@@ -250,6 +250,17 @@ def build_mobility_graph(
                 fa, tb = station_node_id(a), station_node_id(b)
                 if fa not in graph.nodes or tb not in graph.nodes:
                     continue
+                na, nb = graph.nodes[fa], graph.nodes[tb]
+                hop_dist: Optional[float] = None
+                if (
+                    na.latitude is not None
+                    and na.longitude is not None
+                    and nb.latitude is not None
+                    and nb.longitude is not None
+                ):
+                    hop_dist = haversine_m(
+                        na.latitude, na.longitude, nb.latitude, nb.longitude
+                    )
                 eid = f"metro:{route.id}:{a}->{b}"
                 graph.add_edge(
                     GraphEdge(
@@ -260,15 +271,23 @@ def build_mobility_graph(
                         mode=MobilityMode.METRO,
                         provider=route.provider,
                         route_id=route.id,
+                        distance_meters=hop_dist,
                         is_transfer=False,
                         confidence=route.provenance.confidence
                         if route.provenance
                         else None,
                         provenance=route.provenance,
-                        schedule_meta={"schedule_available": False},
+                        schedule_meta={
+                            "schedule_available": False,
+                            "note": "No authoritative BMRCL timetable in published snapshot.",
+                        },
                         metadata={
                             "line": route.id,
                             "color": (route.service_metadata or {}).get("color"),
+                            "distance_basis": "station_coordinate_haversine"
+                            if hop_dist is not None
+                            else "unavailable",
+                            "stations_travelled": 1,
                         },
                     )
                 )
@@ -278,6 +297,17 @@ def build_mobility_graph(
                 fa, tb = station_node_id(b), station_node_id(a)
                 if fa not in graph.nodes or tb not in graph.nodes:
                     continue
+                na, nb = graph.nodes[fa], graph.nodes[tb]
+                hop_dist = None
+                if (
+                    na.latitude is not None
+                    and na.longitude is not None
+                    and nb.latitude is not None
+                    and nb.longitude is not None
+                ):
+                    hop_dist = haversine_m(
+                        na.latitude, na.longitude, nb.latitude, nb.longitude
+                    )
                 eid = f"metro:{route.id}:{b}->{a}"
                 graph.add_edge(
                     GraphEdge(
@@ -288,15 +318,24 @@ def build_mobility_graph(
                         mode=MobilityMode.METRO,
                         provider=route.provider,
                         route_id=route.id,
+                        distance_meters=hop_dist,
                         is_transfer=False,
                         confidence=route.provenance.confidence
                         if route.provenance
                         else None,
                         provenance=route.provenance,
-                        schedule_meta={"schedule_available": False},
+                        schedule_meta={
+                            "schedule_available": False,
+                            "note": "No authoritative BMRCL timetable in published snapshot.",
+                        },
                         metadata={
                             "line": route.id,
                             "direction": "reverse",
+                            "color": (route.service_metadata or {}).get("color"),
+                            "distance_basis": "station_coordinate_haversine"
+                            if hop_dist is not None
+                            else "unavailable",
+                            "stations_travelled": 1,
                         },
                     )
                 )

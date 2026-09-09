@@ -62,6 +62,8 @@ class OrchestratorRequest:
     origin_lon: Optional[float] = None
     destination_lat: Optional[float] = None
     destination_lon: Optional[float] = None
+    origin_endpoint: Optional[Any] = None  # JourneyEndpoint
+    destination_endpoint: Optional[Any] = None
     preferences: Optional[UserPreferences] = None
     origin_zone: Optional[int] = None
     destination_zone: Optional[int] = None
@@ -351,6 +353,8 @@ class MobilityOrchestrator:
                 departure_time=request.departure_time,
                 constraints=journey_constraints,
                 search_limits=limits,
+                origin_endpoint=request.origin_endpoint,
+                destination_endpoint=request.destination_endpoint,
             )
             journeys = list(journey_build.candidates)
             meta.journey_candidate_count = len(journeys)
@@ -377,6 +381,9 @@ class MobilityOrchestrator:
                 )
             else:
                 dep = request.departure_time.isoformat()
+                maps_attempted = 0
+                maps_ok = 0
+                maps_fail = 0
                 for journey in needed:
                     try:
                         results = enrich_road_legs(
@@ -390,6 +397,12 @@ class MobilityOrchestrator:
                         )
                         results = []
                     enrichment_results[journey.candidate_id] = results
+                    for r in results:
+                        maps_attempted += 1
+                        if r.available:
+                            maps_ok += 1
+                        else:
+                            maps_fail += 1
                     meta.enrichment_count += sum(1 for r in results if r.available)
                 # Write enrichment back onto journeys (per-leg); re-aggregate.
                 from src.agent.capabilities.enrichment_apply import apply_enrichments
@@ -401,6 +414,10 @@ class MobilityOrchestrator:
                     "enrich road access/egress legs via Maps",
                     journeys=len(needed),
                     enriched_legs=meta.enrichment_count,
+                    maps_calls_attempted=maps_attempted,
+                    maps_calls_successful=maps_ok,
+                    maps_calls_failed=maps_fail,
+                    provider="Google Routes",
                 )
         else:
             meta.record(

@@ -15,6 +15,9 @@ class CommuteRequest {
   final double? originLon;
   final double? destinationLat;
   final double? destinationLon;
+  /// Phase 7K-4 structured endpoints (place | network_node).
+  final Map<String, dynamic>? originEndpoint;
+  final Map<String, dynamic>? destinationEndpoint;
   final List<String>? modes;
   final bool invokeGemini;
   final bool invokeWeather;
@@ -36,6 +39,8 @@ class CommuteRequest {
     this.originLon,
     this.destinationLat,
     this.destinationLon,
+    this.originEndpoint,
+    this.destinationEndpoint,
     this.modes,
     this.invokeGemini = true,
     this.invokeWeather = true,
