@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/utils/bengaluru_departure.dart';
 import '../../../core/utils/constraint_parser.dart';
+import '../../../data/places_api_client.dart';
 import '../../../domain/entities/commute_request.dart';
 import '../../../domain/entities/user_preferences.dart';
 import '../../providers/commute_provider.dart';
 import '../../widgets/commute_widgets.dart';
+import '../../widgets/place_autocomplete_field.dart';
 import '../results/result_page.dart';
 
 class PlannerPage extends StatefulWidget {
@@ -25,6 +27,9 @@ class _PlannerPageState extends State<PlannerPage> {
   late final TextEditingController _departure;
   late final TextEditingController _maxWalk;
 
+  ResolvedPlace? _originPlace;
+  ResolvedPlace? _destinationPlace;
+
   OptimizationProfile _profile = OptimizationProfile.balanced;
   bool _avoidHeavyTraffic = true;
   bool _excludeCabs = false;
@@ -40,6 +45,9 @@ class _PlannerPageState extends State<PlannerPage> {
     _departure =
         TextEditingController(text: BengaluruDeparture.defaultDisplay());
     _maxWalk = TextEditingController(text: '20');
+    _baseUrl.addListener(() => setState(() {}));
+    _origin.addListener(() => setState(() {}));
+    _destination.addListener(() => setState(() {}));
   }
 
   @override
@@ -90,6 +98,10 @@ class _PlannerPageState extends State<PlannerPage> {
       departureTimeIso8601: departure.apiIso8601,
       preferences: prefs,
       preferenceProfile: _profile.preferenceProfileName,
+      originLat: _originPlace?.latitude,
+      originLon: _originPlace?.longitude,
+      destinationLat: _destinationPlace?.latitude,
+      destinationLon: _destinationPlace?.longitude,
     );
 
     final ok = await provider.planCommute(baseUrl: base, request: request);
@@ -138,29 +150,42 @@ class _PlannerPageState extends State<PlannerPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextFormField(
+                      PlaceAutocompleteField(
+                        key: const Key('origin_place_field'),
                         controller: _origin,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Origin',
-                          hintText: 'Where are you starting?',
-                          prefixIcon: Icon(Icons.trip_origin),
-                        ),
+                        baseUrl: AppConfig.normalizeBaseUrl(_baseUrl.text),
+                        label: 'Origin',
+                        hint: 'Where are you starting?',
+                        prefixIcon: Icons.trip_origin,
+                        onPlaceResolved: (place) =>
+                            setState(() => _originPlace = place),
                         validator: (v) =>
                             (v == null || v.trim().isEmpty) ? 'Required' : null,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
+                      PlaceAutocompleteField(
+                        key: const Key('destination_place_field'),
                         controller: _destination,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Destination',
-                          hintText: 'e.g. Majestic, Bengaluru',
-                          prefixIcon: Icon(Icons.flag_outlined),
-                        ),
+                        baseUrl: AppConfig.normalizeBaseUrl(_baseUrl.text),
+                        label: 'Destination',
+                        hint: 'Search a Bengaluru place',
+                        prefixIcon: Icons.flag_outlined,
+                        onPlaceResolved: (place) =>
+                            setState(() => _destinationPlace = place),
                         validator: (v) =>
                             (v == null || v.trim().isEmpty) ? 'Required' : null,
                       ),
+                      if (_originPlace != null || _destinationPlace != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Place selected — coordinates will be sent with your plan.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _departure,

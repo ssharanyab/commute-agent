@@ -11,6 +11,7 @@ import 'package:commute_agent/presentation/providers/commute_provider.dart';
 import 'package:commute_agent/presentation/screens/results/result_page.dart';
 import 'package:commute_agent/presentation/utils/labels.dart';
 import 'package:commute_agent/presentation/utils/mode_presentation.dart';
+import 'package:commute_agent/presentation/utils/user_facing_explanation.dart';
 import 'package:commute_agent/presentation/widgets/journey_timeline.dart';
 import 'package:commute_agent/presentation/widgets/route_map.dart';
 import 'package:flutter/material.dart';
@@ -165,7 +166,7 @@ void main() {
       );
       expect(
         formatDurationLabel(travelTimeMinutes: 0, known: false),
-        'Duration unavailable',
+        'Time unavailable',
       );
     });
   });
@@ -188,16 +189,16 @@ void main() {
         _wrap(const ResultPage(apiBaseUrl: 'http://test'), provider),
       );
 
-      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.text('Best for you'), findsOneWidget);
       expect(find.byKey(const Key('mode_sequence')), findsOneWidget);
       expect(find.textContaining('Walk'), findsWidgets);
       expect(find.textContaining('Bus'), findsWidgets);
       expect(find.textContaining('Metro'), findsWidgets);
-      expect(find.text('YOUR JOURNEY'), findsOneWidget);
+      expect(find.text('Your journey'), findsOneWidget);
       expect(find.byType(JourneyTimeline), findsOneWidget);
-      expect(find.text('WHY THIS?'), findsOneWidget);
+      expect(find.text('Why this?'), findsOneWidget);
       expect(find.text('Backend explanation for this journey.'), findsOneWidget);
-      expect(find.textContaining('OTHER OPTIONS'), findsOneWidget);
+      expect(find.textContaining('Other ways to go'), findsOneWidget);
       expect(find.textContaining('Lower cost'), findsOneWidget);
       expect(find.byType(RouteMap), findsNothing);
       expect(provider.plan?.recommendation?.googlePolyline, 'POLY');
@@ -206,7 +207,7 @@ void main() {
         find.byKey(const Key('maps_handoff')),
         200,
       );
-      expect(find.text('Open in Google Maps'), findsOneWidget);
+      expect(find.text('Take this journey'), findsOneWidget);
     });
 
     testWidgets('unknown cost shows Fare unavailable', (tester) async {
@@ -221,7 +222,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(const ResultPage(apiBaseUrl: 'http://test'), provider),
       );
-      expect(find.text('Fare unavailable'), findsWidgets);
+      expect(find.textContaining('Fare unavailable'), findsWidgets);
       expect(find.text('₹0'), findsNothing);
       expect(find.text('Free'), findsNothing);
     });
@@ -299,6 +300,168 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('hero_recommendation')), findsOneWidget);
+    });
+  });
+
+  group('Phase 6G.2 user-facing explanation', () {
+    test('strips technical deterministic explanation', () {
+      final why = buildUserFacingExplanation(
+        rawExplanation:
+            'Deterministic Decision Engine selected journey j_8ed2506dea77 '
+            '(score=100.0) as BEST_OVERALL. Candidates considered: 20. '
+            'Gemini unavailable — deterministic fallback',
+        reasonCodes: const [],
+        recommended: _multimodalPlan().recommendation,
+        peers: comparisonRoutesFor(_multimodalPlan()),
+      );
+      expect(why.summary, kDefaultWhySummary);
+      expect(why.summary.toLowerCase(), isNot(contains('gemini')));
+      expect(why.summary.toLowerCase(), isNot(contains('score=')));
+      expect(why.summary.toLowerCase(), isNot(contains('best_overall')));
+      expect(why.summary, isNot(contains('j_8ed2506dea77')));
+      expect(why.summary.toLowerCase(), isNot(contains('candidates considered')));
+      expect(why.summary.toLowerCase(), isNot(contains('deterministic')));
+    });
+
+    test('unknown cost cannot produce lower-cost claim', () {
+      final rec = CommuteRoute(
+        routeId: 'a',
+        mode: 'bus',
+        travelTimeMinutes: 40,
+        cost: 0,
+        costStatus: ValueStatus.unknown,
+        walkingMinutes: 5,
+        transfers: 0,
+        congestionScore: 0.2,
+        reliabilityScore: 0.8,
+      );
+      final peer = CommuteRoute(
+        routeId: 'b',
+        mode: 'cab',
+        travelTimeMinutes: 30,
+        cost: 200,
+        costStatus: ValueStatus.known,
+        walkingMinutes: 0,
+        transfers: 0,
+        congestionScore: 0.4,
+        reliabilityScore: 0.7,
+      );
+      final why = buildUserFacingExplanation(
+        rawExplanation: '',
+        reasonCodes: const ['LOW_COST'],
+        recommended: rec,
+        peers: [rec, peer],
+      );
+      expect(
+        why.reasons.any(
+          (r) =>
+              r.toLowerCase().contains('cost') ||
+              r.toLowerCase().contains('fare') ||
+              r.toLowerCase().contains('cheaper'),
+        ),
+        isFalse,
+      );
+      expect(
+        alternativeCategoryTitle(
+          category: 'CHEAPEST',
+          route: peer,
+          recommended: rec,
+        ),
+        'Another option',
+      );
+    });
+
+    test('omits fastest when duration unknown', () {
+      final why = buildUserFacingExplanation(
+        rawExplanation: '',
+        reasonCodes: const ['FASTEST'],
+        recommended: _multimodalPlan(
+          durationStatus: ValueStatus.unknown,
+          minutes: 48,
+        ).recommendation,
+        peers: comparisonRoutesFor(_multimodalPlan()),
+      );
+      expect(why.reasons, isEmpty);
+    });
+
+    test('keeps friendly backend prose and verified reasons', () {
+      final plan = _multimodalPlan();
+      final why = explanationForPlan(plan);
+      expect(why.summary, 'Backend explanation for this journey.');
+      expect(why.reasons, contains('Faster than other known options'));
+      expect(why.reasons, contains('Less walking'));
+    });
+
+    testWidgets('result page never shows debug internals', (tester) async {
+      final dirty = _multimodalPlan();
+      final plan = CommutePlan(
+        ok: dirty.ok,
+        orchestration: dirty.orchestration,
+        recommendation: dirty.recommendation,
+        recommendedJourney: dirty.recommendedJourney,
+        alternatives: dirty.alternatives,
+        journeys: dirty.journeys,
+        decision: dirty.decision,
+        explanation:
+            'Deterministic Decision Engine selected journey j_winner '
+            '(score=93.8) as BEST_OVERALL. Candidates considered: 20. '
+            'Gemini unavailable — deterministic fallback',
+        reasons: const ['LOW_COST'],
+        dataSources: dirty.dataSources,
+        provenance: dirty.provenance,
+        warnings: dirty.warnings,
+        error: dirty.error,
+        errorDetail: dirty.errorDetail,
+        gemini: dirty.gemini,
+        historicalSignalUsed: dirty.historicalSignalUsed,
+        routeCategories: [
+          RouteCategory(
+            category: 'CHEAPEST',
+            route: CommuteRoute(
+              routeId: 'j_cab',
+              mode: 'cab',
+              travelTimeMinutes: 40,
+              cost: 0,
+              costStatus: ValueStatus.unknown,
+              walkingMinutes: 0,
+              transfers: 0,
+              congestionScore: 0.5,
+              reliabilityScore: 0.5,
+            ),
+          ),
+        ],
+      );
+      // Recommended cost known 42; peer cost unknown → no lower-cost claim.
+      final provider = CommuteProvider()
+        ..status = CommuteStatus.success
+        ..plan = plan
+        ..lastPlanRequest = {'origin': 'A', 'destination': 'B'};
+      await tester.binding.setSurfaceSize(const Size(390, 900));
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
+      await tester.pumpWidget(
+        _wrap(const ResultPage(apiBaseUrl: 'http://test'), provider),
+      );
+
+      expect(find.textContaining('Gemini'), findsNothing);
+      expect(find.textContaining('Gemini unavailable'), findsNothing);
+      expect(find.textContaining('deterministic'), findsNothing);
+      expect(find.textContaining('Deterministic'), findsNothing);
+      expect(find.textContaining('BEST_OVERALL'), findsNothing);
+      expect(find.textContaining('score='), findsNothing);
+      expect(find.textContaining('j_winner'), findsNothing);
+      expect(find.textContaining('Candidates considered'), findsNothing);
+      expect(find.textContaining('Decision Engine'), findsNothing);
+      expect(find.text(kDefaultWhySummary), findsOneWidget);
+      expect(find.textContaining('Lower cost'), findsNothing);
+      expect(find.text('Another option'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('maps_handoff')),
+        200,
+      );
+      expect(find.text('Take this journey'), findsOneWidget);
+      expect(find.byType(RouteMap), findsNothing);
     });
   });
 }

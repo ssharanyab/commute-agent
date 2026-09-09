@@ -3,6 +3,7 @@ import 'decision_summary.dart';
 import 'gemini_meta.dart';
 import 'journey.dart';
 import 'route_category.dart';
+import 'top_journey.dart';
 
 /// Result of a plan attempt — mirrors backend `/plan` without raw JSON.
 class CommutePlan {
@@ -28,6 +29,8 @@ class CommutePlan {
   final GeminiMeta gemini;
   final bool historicalSignalUsed;
   final List<RouteCategory> routeCategories;
+  /// Phase 7C/7D Top-5 selection (optional; missing ⇒ legacy recommendation UI).
+  final TopJourneySelection? topSelection;
 
   const CommutePlan({
     required this.ok,
@@ -52,5 +55,6 @@ class CommutePlan {
     required this.gemini,
     required this.historicalSignalUsed,
     this.routeCategories = const [],
+    this.topSelection,
   });
 }

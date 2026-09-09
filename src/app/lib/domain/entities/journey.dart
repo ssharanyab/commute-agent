@@ -1,4 +1,5 @@
 import 'journey_leg.dart';
+import 'journey_step.dart';
 import 'value_status.dart';
 
 /// Full journey selected (or listed) by the backend Decision Engine.
@@ -7,6 +8,7 @@ class RecommendedJourney {
   final List<double>? originLatLon;
   final List<double>? destinationLatLon;
   final List<JourneyLeg> legs;
+  final List<JourneyStep> steps;
   final List<String> modes;
   final String modeSignature;
   final ValueStatus costStatus;
@@ -30,6 +32,7 @@ class RecommendedJourney {
     this.originLatLon,
     this.destinationLatLon,
     this.legs = const [],
+    this.steps = const [],
     this.modes = const [],
     this.modeSignature = '',
     this.costStatus = ValueStatus.unknown,

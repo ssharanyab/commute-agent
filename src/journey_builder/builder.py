@@ -992,6 +992,8 @@ class DynamicJourneyBuilder:
                 edge_kind=edge.kind,
                 from_ref=from_node.source_ref,
                 to_ref=to_node.source_ref,
+                from_name=from_node.name or None,
+                to_name=to_node.name or None,
                 route_id=edge.route_id,
                 provider=edge.provider,
                 distance_meters=edge.distance_meters,

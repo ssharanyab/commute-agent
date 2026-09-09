@@ -8,16 +8,28 @@ import '../../../domain/entities/context_change.dart';
 import '../../../domain/entities/historical_signal.dart';
 import '../../../domain/entities/journey.dart';
 import '../../../domain/entities/replan_result.dart';
+import '../../../domain/entities/top_journey.dart';
 import '../../providers/commute_provider.dart';
 import '../../utils/labels.dart';
 import '../../utils/mode_presentation.dart';
+import '../../utils/user_facing_explanation.dart';
 import '../../widgets/commute_widgets.dart';
 import '../../widgets/journey_timeline.dart';
 
-class ResultPage extends StatelessWidget {
+class ResultPage extends StatefulWidget {
   const ResultPage({super.key, required this.apiBaseUrl});
 
   final String apiBaseUrl;
+
+  @override
+  State<ResultPage> createState() => _ResultPageState();
+}
+
+class _ResultPageState extends State<ResultPage> {
+  /// Local UI selection — does not mutate backend recommendation.
+  String? _selectedIdentity;
+  String? _selectionPlanKey;
+  Object? _lastReplanToken;
 
   Future<void> _openReplanSheet(BuildContext context) async {
     final change = await showModalBottomSheet<ContextChange>(
@@ -27,12 +39,13 @@ class ResultPage extends StatelessWidget {
     );
     if (change == null || !context.mounted) return;
     await context.read<CommuteProvider>().replanCommute(
-          baseUrl: apiBaseUrl,
+          baseUrl: widget.apiBaseUrl,
           contextChange: change,
         );
   }
 
   Future<void> _openMapsHandoff({
+    required BuildContext context,
     required String origin,
     required String destination,
     required String travelMode,
@@ -42,7 +55,64 @@ class ResultPage extends StatelessWidget {
       destination: destination,
       travelMode: travelMode,
     );
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't open Google Maps. Please try again."),
+          ),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't open Google Maps. Please try again."),
+          ),
+        );
+      }
+    }
+  }
+
+  void _ensureSelectionSynced({
+    required CommutePlan plan,
+    required ReplanResult? replan,
+    required List<TopJourneyOption> options,
+    required TopJourneyOption? recommended,
+  }) {
+    final planKey =
+        '${plan.decision?.recommendedRouteId ?? plan.recommendation?.routeId}'
+        '|${options.map((o) => o.identity).join(',')}';
+    final replanToken = replan;
+    final needsReset = _selectionPlanKey != planKey ||
+        !identical(_lastReplanToken, replanToken);
+    final stale = _selectedIdentity != null &&
+        options.isNotEmpty &&
+        !options.any((o) => o.identity == _selectedIdentity);
+
+    if (!needsReset && !stale) return;
+
+    String? next;
+    if (replan != null &&
+        replan.recommendationChanged &&
+        replan.newRecommendation != null) {
+      final newId = replan.newRecommendation!.routeId;
+      final match = options.where((o) => o.identity == newId);
+      next = match.isNotEmpty ? match.first.identity : newId;
+    } else {
+      next = recommended?.identity ??
+          (options.isNotEmpty ? options.first.identity : null);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _selectionPlanKey = planKey;
+        _lastReplanToken = replanToken;
+        _selectedIdentity = next;
+      });
+    });
   }
 
   @override
@@ -57,12 +127,40 @@ class ResultPage extends StatelessWidget {
     }
 
     final view = _RecommendationView.fromPlan(plan, provider.replanResult);
+    final topOptions = _resolveTopOptions(plan, view);
+    TopJourneyOption? recommendedOption;
+    if (topOptions.isNotEmpty) {
+      recommendedOption = topOptions.firstWhere(
+        (o) => o.isRecommended,
+        orElse: () => topOptions.first,
+      );
+    }
+    final alternatives = topOptions
+        .where(
+          (o) =>
+              recommendedOption == null ||
+              o.identity != recommendedOption.identity,
+        )
+        .toList();
+
+    _ensureSelectionSynced(
+      plan: plan,
+      replan: provider.replanResult,
+      options: topOptions,
+      recommended: recommendedOption,
+    );
+
+    final selected = _findSelected(topOptions, recommendedOption);
     final origin = (provider.lastPlanRequest?['origin'] as String?) ?? '';
     final destination =
         (provider.lastPlanRequest?['destination'] as String?) ?? '';
     final replan = provider.replanResult;
     final replanLoading = provider.isReplanLoading;
-    final travelMode = mapsTravelModeFor(view.route, view.journey);
+    final travelMode = selected != null
+        ? mapsTravelModeForTopOption(selected)
+        : mapsTravelModeFor(view.route, view.journey);
+    final useTop5 = plan.topSelection != null &&
+        !(plan.topSelection!.isEmpty);
 
     return Scaffold(
       appBar: AppBar(
@@ -79,11 +177,31 @@ class ResultPage extends StatelessWidget {
                 _ReplanBanner(replan: replan),
                 const SizedBox(height: 16),
               ],
-              if (view.route != null)
+              if (recommendedOption != null || view.route != null)
                 _HeroRecommendation(
-                  route: view.route!,
+                  option: recommendedOption,
+                  route: view.route,
                   journey: view.journey,
-                  sequence: view.sequence,
+                  sequence: recommendedOption != null
+                      ? modeSequenceForTopOption(recommendedOption)
+                      : view.sequence,
+                  selected: selected != null &&
+                      recommendedOption != null &&
+                      selected.identity == recommendedOption.identity,
+                  onSelect: recommendedOption == null
+                      ? null
+                      : () {
+                          final id = recommendedOption!.identity;
+                          setState(() => _selectedIdentity = id);
+                        },
+                  whyReason: _whyReason(
+                    plan: plan,
+                    option: recommendedOption,
+                    useTop5: useTop5,
+                  ),
+                  whyBullets: useTop5
+                      ? const <String>[]
+                      : explanationForPlan(plan).reasons,
                 )
               else
                 const _EmptyRecommendation(),
@@ -95,74 +213,94 @@ class ResultPage extends StatelessWidget {
                   durationKnown: view.route!.hasKnownDuration,
                 ),
               ],
-              if (view.journey != null && view.journey!.legs.isNotEmpty) ...[
+              if ((selected?.steps.isNotEmpty ?? false) ||
+                  (view.journey != null &&
+                      (view.journey!.steps.isNotEmpty ||
+                          view.journey!.legs.isNotEmpty))) ...[
                 const SizedBox(height: 24),
                 Text(
-                  'YOUR JOURNEY',
+                  'Your journey',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
                 ),
                 const SizedBox(height: 12),
-                JourneyTimeline(journey: view.journey!),
+                JourneyTimeline(
+                  journey: _journeyForSelection(
+                    plan: plan,
+                    selected: selected,
+                    fallback: view.journey,
+                  ),
+                  steps: selected?.steps ?? const [],
+                ),
               ],
-              const SizedBox(height: 24),
-              Text(
-                'WHY THIS?',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                agentExplanationOrFallback(plan.explanation),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              if (plan.reasons.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ...plan.reasons
-                    .where((r) => r.toUpperCase() != 'CONSTRAINT_VIOLATION')
-                    .map(
-                      (r) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.check_circle_outline,
-                              size: 18,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(reasonLabel(r))),
-                          ],
-                        ),
-                      ),
-                    ),
-              ],
-              if (plan.routeCategories.isNotEmpty) ...[
+              if (alternatives.isNotEmpty) ...[
                 const SizedBox(height: 24),
                 Text(
-                  'OTHER OPTIONS',
+                  'Other ways to go',
+                  key: const Key('other_ways_heading'),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
                 ),
                 const SizedBox(height: 10),
-                ...plan.routeCategories.map(
-                  (cat) => Padding(
+                ...alternatives.map(
+                  (alt) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: _AlternativeTile(
-                      title: categoryLabel(cat.category),
-                      route: cat.route,
+                    child: _TopAlternativeCard(
+                      option: alt,
+                      selected: selected?.identity == alt.identity,
+                      onTap: () => setState(() => _selectedIdentity = alt.identity),
+                    ),
+                  ),
+                ),
+              ] else if (!useTop5 && plan.routeCategories.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'Other ways to go',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                ...visibleAlternatives(
+                  categories: plan.routeCategories,
+                  recommended: plan.recommendation,
+                ).map(
+                  (alt) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _LegacyAlternativeTile(
+                      title: alt.title,
+                      route: alt.route,
                     ),
                   ),
                 ),
               ],
               const SizedBox(height: 24),
+              FilledButton(
+                key: const Key('maps_handoff'),
+                onPressed: (origin.isEmpty || destination.isEmpty)
+                    ? null
+                    : () => _openMapsHandoff(
+                          context: context,
+                          origin: origin,
+                          destination: destination,
+                          travelMode: travelMode,
+                        ),
+                child: const Text('Take this journey'),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Opens Google Maps for navigation. Commute Agent remains '
+                'your decision — Maps helps you get there.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 16),
               FilledButton.tonal(
                 key: const Key('replan_button'),
                 onPressed:
@@ -182,32 +320,10 @@ class ResultPage extends StatelessWidget {
                       )
                     : const Text('Replan my commute'),
               ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                key: const Key('maps_handoff'),
-                onPressed: (origin.isEmpty || destination.isEmpty)
-                    ? null
-                    : () => _openMapsHandoff(
-                          origin: origin,
-                          destination: destination,
-                          travelMode: travelMode,
-                        ),
-                icon: const Icon(Icons.open_in_new),
-                label: const Text('Open in Google Maps'),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Opens Google Maps for navigation. Commute Agent remains '
-                'your decision layer — Maps is for getting there.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
               if (provider.replanError != null) ...[
                 const SizedBox(height: 12),
                 ErrorBanner(message: provider.replanError!),
               ],
-              // Keep polyline/token available to navigation layer without rendering a map.
               if (view.route?.googlePolyline != null ||
                   view.route?.googleRouteToken != null)
                 const SizedBox.shrink(
@@ -219,6 +335,79 @@ class ResultPage extends StatelessWidget {
       ),
     );
   }
+
+  TopJourneyOption? _findSelected(
+    List<TopJourneyOption> options,
+    TopJourneyOption? recommended,
+  ) {
+    if (options.isEmpty) return recommended;
+    final id = _selectedIdentity;
+    if (id != null) {
+      for (final o in options) {
+        if (o.identity == id) return o;
+      }
+    }
+    return recommended ?? options.first;
+  }
+
+  RecommendedJourney? _journeyForSelection({
+    required CommutePlan plan,
+    required TopJourneyOption? selected,
+    required RecommendedJourney? fallback,
+  }) {
+    if (selected == null) return fallback;
+    final id = selected.identity;
+    if (plan.recommendedJourney?.candidateId == id) {
+      return plan.recommendedJourney;
+    }
+    for (final j in plan.journeys) {
+      if (j.candidateId == id) return j;
+    }
+    return fallback;
+  }
+
+  String _whyReason({
+    required CommutePlan plan,
+    required TopJourneyOption? option,
+    required bool useTop5,
+  }) {
+    if (useTop5 && option != null) {
+      return displayReason(option.reason);
+    }
+    return explanationForPlan(plan).summary;
+  }
+}
+
+List<TopJourneyOption> _resolveTopOptions(
+  CommutePlan plan,
+  _RecommendationView view,
+) {
+  final selection = plan.topSelection;
+  if (selection != null && !selection.isEmpty) {
+    return selection.displayJourneys;
+  }
+  // Backward compatible: synthesize a single option from recommendation.
+  final route = view.route;
+  if (route == null) return const [];
+  return [
+    TopJourneyOption(
+      routeId: route.routeId,
+      candidateId: route.routeId,
+      mode: route.mode,
+      modeSignature: route.modeSignature,
+      componentModes: route.componentModes,
+      // Keep numeric values even when status is unknown so UI can show "~N min".
+      duration: route.travelTimeMinutes,
+      cost: route.cost,
+      costStatus: route.costStatus,
+      durationStatus: route.durationStatus,
+      walkingDistanceMeters: view.journey?.walkingDistanceMeters,
+      transfers: view.journey?.transferCount ?? route.transfers,
+      isRecommended: true,
+      reason: '',
+      rank: 1,
+    ),
+  ];
 }
 
 /// Resolves authoritative recommendation from Decision Engine fields.
@@ -237,7 +426,6 @@ class _RecommendationView {
     CommutePlan plan,
     ReplanResult? replan,
   ) {
-    // After a changed replan, show the new authoritative route from backend.
     if (replan != null &&
         replan.recommendationChanged &&
         replan.newRecommendation != null) {
@@ -266,7 +454,6 @@ class _RecommendationView {
     var route = plan.recommendation;
     var journey = plan.recommendedJourney;
 
-    // Prefer journey matching Decision Engine winner.
     if (decisionId != null) {
       if (journey == null || journey.candidateId != decisionId) {
         for (final j in plan.journeys) {
@@ -277,8 +464,6 @@ class _RecommendationView {
         }
       }
       if (route == null || route.routeId != decisionId) {
-        // Keep recommendation if it already matches; otherwise leave as-is
-        // (backend recommendation should match decision).
         if (plan.recommendation?.routeId == decisionId) {
           route = plan.recommendation;
         }
@@ -307,7 +492,8 @@ class _EmptyRecommendation extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          'No suitable journey was found for these preferences.',
+          "We couldn't find a suitable way to make this trip with your "
+          'current preferences.',
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ),
@@ -317,114 +503,255 @@ class _EmptyRecommendation extends StatelessWidget {
 
 class _HeroRecommendation extends StatelessWidget {
   const _HeroRecommendation({
+    required this.option,
     required this.route,
     required this.journey,
     required this.sequence,
+    required this.selected,
+    required this.onSelect,
+    required this.whyReason,
+    this.whyBullets = const [],
   });
 
-  final CommuteRoute route;
+  final TopJourneyOption? option;
+  final CommuteRoute? route;
   final RecommendedJourney? journey;
   final String sequence;
+  final bool selected;
+  final VoidCallback? onSelect;
+  final String whyReason;
+  final List<String> whyBullets;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final walkingMeters = journey?.walkingDistanceMeters ??
-        ((route.accessWalkingMeters ?? 0) +
-            (route.transferWalkingMeters ?? 0) +
-            (route.egressWalkingMeters ?? 0));
-    final transfers = journey?.transferCount ?? route.transfers;
+    final durationText = option != null
+        ? formatDurationLabel(
+            travelTimeMinutes: option!.duration ?? 0,
+            known: option!.hasKnownDuration,
+          )
+        : formatDurationLabel(
+            travelTimeMinutes: route?.travelTimeMinutes ?? 0,
+            known: route?.hasKnownDuration ?? false,
+          );
+    final costText = option != null
+        ? formatCostLabel(
+            cost: option!.cost ?? 0,
+            known: option!.hasKnownCost,
+          )
+        : formatCostLabel(
+            cost: route?.cost ?? 0,
+            known: route?.hasKnownCost ?? false,
+            partialKnownCostInr: route?.partialKnownCostInr,
+          );
 
-    return Card(
-      key: const Key('hero_recommendation'),
-      elevation: 0,
-      color: scheme.primaryContainer.withValues(alpha: 0.45),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'BEST FOR YOU',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                  ),
+    final walkText = option != null
+        ? walkingMetricLabel(
+            option!.hasKnownWalking ? option!.walkingDistanceMeters : null,
+          )
+        : walkingSummary(
+            walkingMinutes: route?.walkingMinutes ?? 0,
+            walkingMeters: journey?.walkingDistanceMeters ??
+                ((route?.accessWalkingMeters ?? 0) +
+                    (route?.transferWalkingMeters ?? 0) +
+                    (route?.egressWalkingMeters ?? 0)),
+          );
+
+    final transfers = option?.transfers ??
+        journey?.transferCount ??
+        route?.transfers ??
+        0;
+    final transferText = option != null
+        ? transferMetricLabel(transfers)
+        : transferSummary(transfers);
+
+    final metrics = <String>[
+      durationText,
+      costText,
+      if (walkText != null && walkText.isNotEmpty) walkText,
+      if (transferText != null) transferText,
+    ];
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('hero_recommendation'),
+        borderRadius: BorderRadius.circular(16),
+        onTap: onSelect,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? scheme.primary : Colors.transparent,
+              width: selected ? 2 : 0,
             ),
-            const SizedBox(height: 10),
-            Text(
-              sequence,
-              key: const Key('mode_sequence'),
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    height: 1.3,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 16,
-              runSpacing: 8,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _Stat(
-                  icon: Icons.schedule,
-                  text: formatDurationLabel(
-                    travelTimeMinutes: route.travelTimeMinutes,
-                    known: route.hasKnownDuration,
+                Text(
+                  'Best for you',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  sequence,
+                  key: const Key('mode_sequence'),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  metrics.join(' · '),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Why this?',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  whyReason,
+                  key: const Key('why_summary'),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                if (whyBullets.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ...whyBullets.map(
+                    (r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.check_circle_outline,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(r)),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-                _Stat(
-                  icon: Icons.currency_rupee,
-                  text: formatCostLabel(
-                    cost: route.cost,
-                    known: route.hasKnownCost,
-                    partialKnownCostInr: route.partialKnownCostInr,
-                  ),
-                ),
-                _Stat(
-                  icon: Icons.directions_walk,
-                  text: walkingSummary(
-                    walkingMinutes: route.walkingMinutes,
-                    walkingMeters: walkingMeters > 0 ? walkingMeters : null,
-                  ),
-                ),
-                _Stat(
-                  icon: Icons.swap_horiz,
-                  text: transferSummary(transfers),
-                ),
+                ],
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _Stat extends StatelessWidget {
-  const _Stat({required this.icon, required this.text});
+class _TopAlternativeCard extends StatelessWidget {
+  const _TopAlternativeCard({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
 
-  final IconData icon;
-  final String text;
+  final TopJourneyOption option;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 18),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(text, style: Theme.of(context).textTheme.titleSmall),
+    final scheme = Theme.of(context).colorScheme;
+    final durationText = formatDurationLabel(
+      travelTimeMinutes: option.duration ?? 0,
+      known: option.hasKnownDuration,
+    );
+    final costText = formatCostLabel(
+      cost: option.cost ?? 0,
+      known: option.hasKnownCost,
+    );
+    final walkText = walkingMetricLabel(
+      option.hasKnownWalking ? option.walkingDistanceMeters : null,
+    );
+    final transferText = transferMetricLabel(option.transfers);
+    final metrics = <String>[
+      durationText,
+      costText,
+      if (walkText != null) walkText,
+      if (transferText != null) transferText,
+    ];
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: Key('alt_card_${option.identity}'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? scheme.primary : Colors.transparent,
+              width: selected ? 2 : 0,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  modeSequenceForTopOption(option),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  metrics.join(' · '),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  displayReason(option.reason),
+                  key: Key('alt_reason_${option.identity}'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+                if (selected) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Selected',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 }
 
-class _AlternativeTile extends StatelessWidget {
-  const _AlternativeTile({required this.title, required this.route});
+class _LegacyAlternativeTile extends StatelessWidget {
+  const _LegacyAlternativeTile({required this.title, required this.route});
 
   final String title;
   final CommuteRoute route;
@@ -584,10 +911,10 @@ class _ReplanBanner extends StatelessWidget {
                   : 'Commute Agent checked again — your current plan still fits.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
-            if (replan.explanation.trim().isNotEmpty) ...[
+            if (safeReplanExplanation(replan.explanation) != null) ...[
               const SizedBox(height: 8),
               Text(
-                replan.explanation.trim(),
+                safeReplanExplanation(replan.explanation)!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),

@@ -55,6 +55,8 @@ class RouteCandidate:
     access_walking_meters: Optional[float] = None
     transfer_walking_meters: Optional[float] = None
     egress_walking_meters: Optional[float] = None
+    # Complete-journey walking meters when known (Phase 7B hard constraint).
+    walking_distance_meters: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert candidate to dictionary serialization."""
@@ -80,6 +82,7 @@ class RouteCandidate:
             "access_walking_meters": self.access_walking_meters,
             "transfer_walking_meters": self.transfer_walking_meters,
             "egress_walking_meters": self.egress_walking_meters,
+            "walking_distance_meters": self.walking_distance_meters,
         }
 
 
@@ -230,6 +233,10 @@ class EvaluationResult:
     constraint_violations: List[str] = field(default_factory=list)
     # Category winners (deduplicated route list separately in alternatives sense)
     route_categories: List[RouteCategory] = field(default_factory=list)
+    # Phase 7B structured strategy / constraint diagnostics (not user-facing copy).
+    strategy_meta: Optional[Dict[str, Any]] = None
+    # Phase 7C: diverse Top-5 presentation layer (does not change recommended_route).
+    top_selection: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert evaluation result to dictionary serialization."""
@@ -240,4 +247,6 @@ class EvaluationResult:
             "reason_codes": self.reason_codes,
             "constraint_violations": self.constraint_violations,
             "route_categories": [c.to_dict() for c in self.route_categories],
+            "strategy_meta": dict(self.strategy_meta) if self.strategy_meta else None,
+            "top_selection": dict(self.top_selection) if self.top_selection else None,
         }

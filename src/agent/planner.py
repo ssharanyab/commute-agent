@@ -232,14 +232,13 @@ def _extract_text_from_adk_events(events: List[Any]) -> str:
     return "\n".join(chunks).strip()
 
 
-def _invoke_adk_explanation(
-    user_text: str,
-    planner_result: PlannerResult,
+def _run_adk_explanation_message(
     *,
     user_id: str,
+    message_text: str,
 ) -> Tuple[str, bool, str]:
     """
-    Run the ADK agent to produce a grounded explanation.
+    Shared ADK/Gemini runner for explanation-only prompts.
 
     Returns (explanation, success, error_detail).
     success is True only when usable Gemini text was produced.
@@ -270,22 +269,9 @@ def _invoke_adk_explanation(
         session_service=session_service,
     )
 
-    payload = {
-        "user_request": user_text,
-        "planner_result": planner_result.to_dict(),
-        "instructions": EXPLANATION_INSTRUCTION,
-    }
     message = types.Content(
         role="user",
-        parts=[
-            types.Part(
-                text=(
-                    "Explain this deterministic commute plan for the user. "
-                    "Do not change the recommended route or any metrics.\n\n"
-                    + json.dumps(payload, default=str)
-                )
-            )
-        ],
+        parts=[types.Part(text=message_text)],
     )
 
     async def _collect_events():
@@ -313,6 +299,142 @@ def _invoke_adk_explanation(
         return "", False, "ADK execution failed: no text response from model"
 
     return text, True, ""
+
+
+def _invoke_adk_explanation(
+    user_text: str,
+    planner_result: PlannerResult,
+    *,
+    user_id: str,
+) -> Tuple[str, bool, str]:
+    """
+    Run the ADK agent to produce a grounded explanation from a PlannerResult.
+
+    Legacy agent entrypoint path. Prefer explain_decision_for_orchestrator
+    for MobilityOrchestrator / HTTP /plan.
+    """
+    payload = {
+        "user_request": user_text,
+        "planner_result": planner_result.to_dict(),
+        "instructions": EXPLANATION_INSTRUCTION,
+    }
+    message_text = (
+        "Explain this deterministic commute plan for the user. "
+        "Do not change the recommended route or any metrics.\n\n"
+        + json.dumps(payload, default=str)
+    )
+    return _run_adk_explanation_message(user_id=user_id, message_text=message_text)
+
+
+def _sanitized_selected_journey(route: Any) -> Dict[str, Any]:
+    """Journey facts for Gemini — no route IDs, scores, or navigation tokens."""
+    if route is None:
+        return {}
+    cost_status = getattr(route, "cost_status", "known")
+    duration_status = getattr(route, "duration_status", "known")
+    out: Dict[str, Any] = {
+        "mode": getattr(route, "mode", None),
+        "mode_signature": getattr(route, "mode_signature", None) or None,
+        "component_modes": list(getattr(route, "component_modes", None) or []) or None,
+        "walking_minutes": getattr(route, "walking_minutes", None),
+        "transfers": getattr(route, "transfers", None),
+        "cost_status": cost_status,
+        "duration_status": duration_status,
+    }
+    if duration_status == "known":
+        out["travel_time_minutes"] = getattr(route, "travel_time_minutes", None)
+    elif getattr(route, "travel_time_minutes", None):
+        out["travel_time_minutes_approximate"] = getattr(route, "travel_time_minutes")
+    if cost_status == "known":
+        out["cost_inr"] = getattr(route, "cost", None)
+    else:
+        partial = getattr(route, "partial_known_cost_inr", None)
+        if partial is not None:
+            out["partial_known_cost_inr"] = partial
+        out["cost_note"] = "unavailable"
+    rel = getattr(route, "reliability_score", None)
+    if rel is not None:
+        out["reliability_score"] = rel
+    cong = getattr(route, "congestion_score", None)
+    if cong is not None:
+        out["congestion_score"] = cong
+    hist = getattr(route, "historical_mobility_signal", None)
+    if isinstance(hist, dict) and hist.get("has_historical_coverage"):
+        out["historical_context"] = {
+            "has_coverage": True,
+            "expected_minutes": hist.get("historical_expected_travel_time_minutes"),
+            "reliability": hist.get("historical_reliability_score"),
+            "deviation_state": hist.get("deviation_state"),
+        }
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def explain_decision_for_orchestrator(
+    request: Any,
+    evaluation: Any,
+    decision: Any,
+) -> Tuple[str, bool, str]:
+    """
+    MobilityOrchestrator.explain_fn adapter.
+
+    Explanation only — never selects or reranks journeys.
+    Reuses the same ADK agent / Gemini runner as `_invoke_adk_explanation`.
+    """
+    selected = None
+    if evaluation is not None:
+        selected = getattr(evaluation, "recommended_route", None)
+    reason_codes: List[str] = []
+    if decision is not None and getattr(decision, "reason_codes", None):
+        reason_codes = list(decision.reason_codes)
+    elif evaluation is not None and getattr(evaluation, "reason_codes", None):
+        reason_codes = list(evaluation.reason_codes)
+
+    prefs = getattr(request, "preferences", None)
+    prefs_dict: Dict[str, Any] = {}
+    if prefs is not None:
+        if hasattr(prefs, "to_dict"):
+            prefs_dict = prefs.to_dict()
+        elif isinstance(prefs, dict):
+            prefs_dict = dict(prefs)
+        # Soft weights are DE internals — keep constraints only for explanation.
+        prefs_dict = {
+            k: v
+            for k, v in prefs_dict.items()
+            if k
+            in {
+                "preferred_modes",
+                "excluded_modes",
+                "max_walking_minutes",
+                "max_cost",
+                "avoid_heavy_traffic",
+            }
+            and v is not None
+        }
+
+    context = {
+        "origin": getattr(request, "origin", None),
+        "destination": getattr(request, "destination", None),
+        "user_constraints": prefs_dict or None,
+        "selected_journey": _sanitized_selected_journey(selected),
+        "selection_reasons": [
+            c
+            for c in reason_codes
+            if str(c).upper() not in {"CONSTRAINT_VIOLATION", "NO_VALID_ROUTE"}
+        ]
+        or None,
+        "instructions": EXPLANATION_INSTRUCTION,
+    }
+
+    message_text = (
+        "The Decision Engine has already selected the authoritative journey. "
+        "Explain why this journey fits the user's preferences and available "
+        "journey data. Do not recommend a different journey. Do not mention "
+        "internal IDs, scores, candidate counts, BEST_OVERALL, Decision Engine, "
+        "Gemini, or other implementation details.\n\n"
+        + json.dumps(context, default=str)
+    )
+    user_id = getattr(request, "user_id", None) or "api-user"
+    return _run_adk_explanation_message(user_id=str(user_id), message_text=message_text)
 
 
 def _probe_context_tools(

@@ -158,6 +158,8 @@ def annotate_leg_economics(leg: JourneyLeg) -> JourneyLeg:
         edge_kind=leg.edge_kind,
         from_ref=leg.from_ref,
         to_ref=leg.to_ref,
+        from_name=leg.from_name,
+        to_name=leg.to_name,
         route_id=leg.route_id,
         provider=leg.provider,
         distance_meters=leg.distance_meters,

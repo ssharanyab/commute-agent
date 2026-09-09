@@ -205,6 +205,9 @@ def journeys_to_route_candidates(
                 access_walking_meters=journey.access_walking_meters,
                 transfer_walking_meters=journey.transfer_walking_meters,
                 egress_walking_meters=journey.egress_walking_meters,
+                walking_distance_meters=float(journey.walking_distance_meters)
+                if journey.walking_distance_meters is not None
+                else None,
             )
         )
     return out

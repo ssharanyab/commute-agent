@@ -11,9 +11,6 @@ class GeminiMeta {
     required this.mode,
   });
 
-  String get statusLabel {
-    if (invoked) return 'Gemini ($mode)';
-    if (!available) return 'Gemini unavailable — deterministic fallback';
-    return 'Deterministic fallback ($mode)';
-  }
+  /// Not for user-facing UI — Gemini/engine status must never be shown.
+  String get statusLabel => '';
 }

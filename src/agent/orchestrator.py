@@ -36,6 +36,7 @@ from src.agent.config import (
     gemini_credentials_available,
 )
 from src.agent.demo_od import BENGALURU_LANDMARKS
+from src.agent.mobility_strategy import MobilityConstraints, MobilityStrategy
 from src.agent.schemas import (
     AgentRecommendation,
     AgentRunResult,
@@ -66,6 +67,9 @@ class OrchestratorRequest:
     destination_zone: Optional[int] = None
     max_transfers: Optional[int] = None
     search_limits: Optional[SearchLimits] = None
+    # Phase 7A — carried for Phase 7B; not applied to ranking yet.
+    strategy: Optional[MobilityStrategy] = None
+    constraints: Optional[MobilityConstraints] = None
     invoke_gemini: bool = False
     invoke_weather: bool = True
     invoke_historical: bool = True
@@ -168,13 +172,63 @@ def resolve_coordinates(
     label: str,
     lat: Optional[float],
     lon: Optional[float],
+    *,
+    allow_google: bool = True,
 ) -> Tuple[Optional[float], Optional[float], str]:
+    """
+    Resolve place text to coordinates.
+
+    Providers (in order):
+      1. explicit lat/lon on the request
+      2. exact-key match in BENGALURU_LANDMARKS (static offline table)
+      3. Google Geocoding API (Bengaluru / India bias) when key configured
+
+    No fuzzy matching. Unmatched labels → unresolved.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
     if lat is not None and lon is not None:
+        log.info(
+            "location_resolve input=%r provider=explicit success=true lat=%.5f lon=%.5f",
+            label,
+            float(lat),
+            float(lon),
+        )
         return float(lat), float(lon), "explicit"
     key = (label or "").strip().lower()
     place = BENGALURU_LANDMARKS.get(key)
     if place:
+        log.info(
+            "location_resolve input=%r provider=landmark_table success=true lat=%.5f lon=%.5f",
+            label,
+            place.latitude,
+            place.longitude,
+        )
         return place.latitude, place.longitude, "landmark_table"
+
+    if allow_google:
+        try:
+            from src.mobility.geocoding import geocode_bengaluru
+
+            geo = geocode_bengaluru(label)
+        except Exception:
+            geo = None
+        if geo is not None:
+            log.info(
+                "location_resolve input=%r provider=google_geocoding success=true "
+                "lat=%.5f lon=%.5f",
+                label,
+                geo.latitude,
+                geo.longitude,
+            )
+            return geo.latitude, geo.longitude, "google_geocoding"
+
+    log.info(
+        "location_resolve input=%r provider=landmark_table+google_geocoding "
+        "success=false error_category=COORDINATES_UNRESOLVED",
+        label,
+    )
     return None, None, "unresolved"
 
 
@@ -408,7 +462,12 @@ class MobilityOrchestrator:
                 excluded_modes=personalization.excluded_modes,
                 max_walking_minutes=personalization.max_walking_minutes,
             )
-            evaluation = evaluate_routes(route_candidates, prefs)
+            evaluation = evaluate_routes(
+                route_candidates,
+                prefs,
+                strategy=request.strategy,
+                constraints=request.constraints,
+            )
             meta.decision_engine_invoked = True
             decision = _decision_from_evaluation(evaluation)
             meta.record(
@@ -416,6 +475,7 @@ class MobilityOrchestrator:
                 "invoked",
                 "deterministic ranking of journey candidates",
                 recommended=decision.recommended_route_id,
+                strategy=request.strategy.value if request.strategy else None,
             )
         elif request.allow_legacy_maps_fallback:
             meta.fallbacks.append("legacy_plan_commute")
@@ -680,6 +740,16 @@ def plan_commute_with_adk(
 
     Always produces deterministic ranking when candidates exist.
     Gemini explanation is optional and never overrides Decision Engine.
+
+    When ``request.invoke_gemini`` is True and the caller did not supply
+    ``explain_fn``, injects the shared ADK explanation adapter from planner.py.
     """
+    if request.invoke_gemini and "explain_fn" not in orchestrator_kwargs:
+        from src.agent.planner import explain_decision_for_orchestrator
+
+        orchestrator_kwargs = {
+            **orchestrator_kwargs,
+            "explain_fn": explain_decision_for_orchestrator,
+        }
     orch = MobilityOrchestrator(repository=repository, **orchestrator_kwargs)
     return orch.run(request)

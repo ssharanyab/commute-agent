@@ -151,6 +151,9 @@ class JourneyLeg:
     edge_kind: EdgeKind
     from_ref: Optional[str] = None  # stop/station id when applicable
     to_ref: Optional[str] = None
+    # Display names from GraphNode when known (Phase 7G steps).
+    from_name: Optional[str] = None
+    to_name: Optional[str] = None
     route_id: Optional[str] = None
     provider: Optional[str] = None
     distance_meters: Optional[float] = None
@@ -178,6 +181,8 @@ class JourneyLeg:
             "edge_kind": self.edge_kind.value,
             "from_ref": self.from_ref,
             "to_ref": self.to_ref,
+            "from_name": self.from_name,
+            "to_name": self.to_name,
             "route_id": self.route_id,
             "provider": self.provider,
             "distance_meters": self.distance_meters,
@@ -223,12 +228,28 @@ class Journey:
     egress_walking_meters: float = 0.0
     mode_signature: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(
+        self,
+        *,
+        origin_label: Optional[str] = None,
+        destination_label: Optional[str] = None,
+        name_lookup: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        from src.journey_builder.steps import build_journey_steps, steps_to_dicts
+
         return {
             "candidate_id": self.candidate_id,
             "origin": list(self.origin),
             "destination": list(self.destination),
             "legs": [leg.to_dict() for leg in self.legs],
+            "steps": steps_to_dicts(
+                build_journey_steps(
+                    self,
+                    origin_label=origin_label,
+                    destination_label=destination_label,
+                    name_lookup=name_lookup,
+                )
+            ),
             "transfer_count": self.transfer_count,
             "walking_distance_meters": self.walking_distance_meters,
             "access_walking_meters": self.access_walking_meters,

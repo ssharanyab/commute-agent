@@ -6,9 +6,35 @@ import '../../domain/entities/gemini_meta.dart';
 import '../../domain/entities/historical_signal.dart';
 import '../../domain/entities/journey.dart';
 import '../../domain/entities/journey_leg.dart';
+import '../../domain/entities/journey_step.dart';
 import '../../domain/entities/replan_result.dart';
 import '../../domain/entities/route_category.dart';
+import '../../domain/entities/top_journey.dart';
 import '../../domain/entities/value_status.dart';
+
+List<JourneyStep> _parseJourneySteps(dynamic raw) {
+  if (raw is! List) return const [];
+  final out = <JourneyStep>[];
+  for (final item in raw) {
+    if (item is! Map) continue;
+    final m = Map<String, dynamic>.from(item);
+    final instruction = (m['instruction'] as String?) ?? '';
+    if (instruction.trim().isEmpty) continue;
+    out.add(
+      JourneyStep(
+        type: (m['type'] as String?) ?? 'LEG',
+        instruction: instruction,
+        mode: m['mode'] as String?,
+        fromName: m['from_name'] as String?,
+        toName: m['to_name'] as String?,
+        fromMode: m['from_mode'] as String?,
+        toMode: m['to_mode'] as String?,
+        locationName: m['location_name'] as String?,
+      ),
+    );
+  }
+  return out;
+}
 
 class GeminiMetaModel {
   final bool available;
@@ -306,6 +332,7 @@ class JourneyModel {
         originLatLon: latLon(json['origin']),
         destinationLatLon: latLon(json['destination']),
         legs: legs,
+        steps: _parseJourneySteps(json['steps']),
         modes: _stringList(json['modes']),
         modeSignature: (json['mode_signature'] as String?) ?? '',
         costStatus: ValueStatus.fromWire(json['cost_status'] as String?),
@@ -415,6 +442,151 @@ class EvaluationModel {
   }
 }
 
+class TopJourneyOptionModel {
+  final TopJourneyOption entity;
+
+  TopJourneyOptionModel(this.entity);
+
+  factory TopJourneyOptionModel.fromJson(Map<String, dynamic> json) {
+    final routeId = (json['route_id'] as String?) ?? '';
+    final candidateId = (json['candidate_id'] as String?) ?? routeId;
+    return TopJourneyOptionModel(
+      TopJourneyOption(
+        routeId: routeId,
+        candidateId: candidateId,
+        mode: (json['mode'] as String?) ?? 'unknown',
+        modeSignature: (json['mode_signature'] as String?) ?? '',
+        diversitySignature: (json['diversity_signature'] as String?) ?? '',
+        componentModes: _stringList(json['component_modes']),
+        duration: (json['duration'] as num?)?.toDouble(),
+        cost: (json['cost'] as num?)?.toDouble(),
+        costStatus: ValueStatus.fromWire(
+          json['cost_status'] as String?,
+          whenMissing: ValueStatus.known,
+        ),
+        durationStatus: ValueStatus.fromWire(
+          json['duration_status'] as String?,
+          whenMissing: ValueStatus.known,
+        ),
+        walkingDistanceMeters:
+            (json['walking_distance_meters'] as num?)?.toDouble(),
+        transfers: (json['transfers'] as num?)?.toInt() ?? 0,
+        score: (json['score'] as num?)?.toDouble() ?? 0,
+        rank: (json['rank'] as num?)?.toInt() ?? 0,
+        strategyTier: (json['strategy_tier'] as num?)?.toInt() ?? 0,
+        isRecommended: json['is_recommended'] == true,
+        reason: (json['reason'] as String?) ?? '',
+        backbone: (json['backbone'] as String?) ?? '',
+        steps: _parseJourneySteps(json['steps']),
+      ),
+    );
+  }
+}
+
+class TopJourneySelectionModel {
+  final TopJourneySelection entity;
+
+  TopJourneySelectionModel(this.entity);
+
+  factory TopJourneySelectionModel.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return TopJourneySelectionModel(const TopJourneySelection());
+    }
+
+    TopJourneyOption? recommended;
+    final recRaw = json['recommended'];
+    if (recRaw is Map) {
+      recommended = TopJourneyOptionModel.fromJson(
+        Map<String, dynamic>.from(recRaw),
+      ).entity;
+    }
+
+    final alts = <TopJourneyOption>[];
+    final altsRaw = json['alternatives'];
+    if (altsRaw is List) {
+      for (final raw in altsRaw) {
+        if (raw is! Map) continue;
+        alts.add(
+          TopJourneyOptionModel.fromJson(Map<String, dynamic>.from(raw)).entity,
+        );
+      }
+    }
+
+    final top = <TopJourneyOption>[];
+    final topRaw = json['top_journeys'];
+    if (topRaw is List) {
+      for (final raw in topRaw) {
+        if (raw is! Map) continue;
+        top.add(
+          TopJourneyOptionModel.fromJson(Map<String, dynamic>.from(raw)).entity,
+        );
+      }
+    }
+
+    // Prefer flat list; otherwise reconstruct from recommended + alternatives.
+    final journeys = top.isNotEmpty
+        ? top
+        : [
+            if (recommended != null) recommended,
+            ...alts,
+          ];
+
+    return TopJourneySelectionModel(
+      TopJourneySelection(
+        recommended: recommended ??
+            (journeys.isNotEmpty
+                ? journeys.firstWhere(
+                    (o) => o.isRecommended,
+                    orElse: () => journeys.first,
+                  )
+                : null),
+        alternatives: alts.isNotEmpty
+            ? alts
+            : journeys.where((o) => !o.isRecommended).toList(),
+        selectedCount:
+            (json['selected_count'] as num?)?.toInt() ?? journeys.length,
+        maxCount: (json['max_count'] as num?)?.toInt() ?? 5,
+        topJourneys: journeys,
+      ),
+    );
+  }
+
+  /// Parse from either `top_selection` object or bare `top_journeys` list.
+  static TopJourneySelection? parseFromPlanJson(Map<String, dynamic> json) {
+    final selectionRaw = json['top_selection'];
+    if (selectionRaw is Map) {
+      final parsed = TopJourneySelectionModel.fromJson(
+        Map<String, dynamic>.from(selectionRaw),
+      ).entity;
+      if (!parsed.isEmpty) return parsed;
+    }
+
+    final topRaw = json['top_journeys'];
+    if (topRaw is List && topRaw.isNotEmpty) {
+      final journeys = <TopJourneyOption>[];
+      for (final raw in topRaw) {
+        if (raw is! Map) continue;
+        journeys.add(
+          TopJourneyOptionModel.fromJson(Map<String, dynamic>.from(raw)).entity,
+        );
+      }
+      if (journeys.isEmpty) return null;
+      final recommended = journeys.firstWhere(
+        (o) => o.isRecommended,
+        orElse: () => journeys.first,
+      );
+      return TopJourneySelection(
+        recommended: recommended,
+        alternatives: journeys.where((o) => o.identity != recommended.identity).toList(),
+        selectedCount: journeys.length,
+        maxCount: 5,
+        topJourneys: journeys,
+      );
+    }
+    return null;
+  }
+}
+
 class PlanResponseModel {
   final bool ok;
   final String? orchestration;
@@ -438,6 +610,7 @@ class PlanResponseModel {
   final GeminiMetaModel gemini;
   final bool historicalSignalUsed;
   final List<({String category, String routeId})> categoryRefs;
+  final TopJourneySelection? topSelection;
 
   PlanResponseModel({
     required this.ok,
@@ -462,6 +635,7 @@ class PlanResponseModel {
     required this.gemini,
     required this.historicalSignalUsed,
     this.categoryRefs = const [],
+    this.topSelection,
   });
 
   factory PlanResponseModel.fromJson(Map<String, dynamic> json) {
@@ -571,6 +745,7 @@ class PlanResponseModel {
       gemini: GeminiMetaModel.fromJson(_asStringKeyedMap(json['gemini'])),
       historicalSignalUsed: json['historical_signal_used'] == true,
       categoryRefs: categoryRefs,
+      topSelection: TopJourneySelectionModel.parseFromPlanJson(json),
     );
     model._routeIndex = byId;
     return model;
@@ -615,6 +790,7 @@ class PlanResponseModel {
       gemini: gemini.toEntity(),
       historicalSignalUsed: historicalSignalUsed,
       routeCategories: categories,
+      topSelection: topSelection,
     );
   }
 }

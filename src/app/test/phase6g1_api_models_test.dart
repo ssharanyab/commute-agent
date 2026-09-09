@@ -88,7 +88,7 @@ void main() {
           travelTimeMinutes: rec.travelTimeMinutes,
           known: rec.hasKnownDuration,
         );
-        expect(label == 'Duration unavailable' || label.startsWith('~'), isTrue);
+        expect(label == 'Time unavailable' || label.startsWith('~'), isTrue);
       }
       final journey = plan.recommendedJourney!;
       expect(journey.durationStatus, isNotNull);

@@ -67,6 +67,40 @@ def create_app() -> FastAPI:
     def health() -> Dict[str, Any]:
         return {"status": "ok", "service": "commute-agent"}
 
+    @app.get("/places/autocomplete")
+    def places_autocomplete_endpoint(q: str = "", limit: int = 6) -> Dict[str, Any]:
+        """Bengaluru-biased Places Autocomplete proxy (API key stays server-side)."""
+        from src.mobility.geocoding import places_autocomplete
+
+        suggestions, err = places_autocomplete(q, limit=min(max(limit, 1), 10))
+        return {
+            "ok": err is None,
+            "query": q,
+            "suggestions": [s.to_dict() for s in suggestions],
+            "error": err,
+            "configured": err != "missing_api_key",
+        }
+
+    @app.get("/places/details")
+    def places_details_endpoint(place_id: str = "") -> Dict[str, Any]:
+        """Resolve a Places place_id to lat/lon for Flutter plan requests."""
+        from src.mobility.geocoding import place_details
+
+        details, err = place_details(place_id)
+        if details is None:
+            return {
+                "ok": False,
+                "error": err or "not_found",
+                "place": None,
+                "configured": err != "missing_api_key",
+            }
+        return {
+            "ok": True,
+            "error": None,
+            "place": details.to_dict(),
+            "configured": True,
+        }
+
     @app.post("/plan")
     def plan(body: PlanRequest) -> JSONResponse:
         try:

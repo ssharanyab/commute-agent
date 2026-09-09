@@ -4,9 +4,15 @@ Pydantic request schemas for the HTTP API (Python 3.9 compatible).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+from src.agent.mobility_strategy import (
+    AccessoryMode,
+    MobilityStrategy,
+    normalize_excluded_mode_token,
+)
 
 
 class PreferencesIn(BaseModel):
@@ -23,6 +29,43 @@ class PreferencesIn(BaseModel):
     avoid_heavy_traffic: bool = False
 
 
+class MobilityConstraintsIn(BaseModel):
+    """Optional hard constraints (Phase 7A). Absent fields leave current behavior."""
+
+    excluded_modes: Optional[List[str]] = None
+    max_walking_distance_meters: Optional[float] = None
+    max_transfers: Optional[int] = None
+    allowed_accessory_modes: Optional[List[str]] = None
+
+    @field_validator("max_walking_distance_meters")
+    @classmethod
+    def _walk_non_negative(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and value < 0:
+            raise ValueError("max_walking_distance_meters must be >= 0")
+        return value
+
+    @field_validator("max_transfers")
+    @classmethod
+    def _transfers_non_negative(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("max_transfers must be >= 0")
+        return value
+
+    @field_validator("excluded_modes")
+    @classmethod
+    def _normalize_excluded(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        return [normalize_excluded_mode_token(m) for m in value]
+
+    @field_validator("allowed_accessory_modes")
+    @classmethod
+    def _normalize_accessories(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        return [AccessoryMode.parse(m).value for m in value]
+
+
 class PlanRequest(BaseModel):
     origin: str = Field(..., min_length=1)
     destination: str = Field(..., min_length=1)
@@ -30,6 +73,9 @@ class PlanRequest(BaseModel):
     objective: Optional[str] = None
     # Named Decision Engine profile (FASTEST / CHEAPEST / …); overrides objective map.
     preference_profile: Optional[str] = None
+    # Phase 7A: journey composition strategy (not a preference profile).
+    strategy: Optional[str] = None
+    constraints: Optional[MobilityConstraintsIn] = None
     user_id: str = "api-user"
     origin_zone: Optional[int] = None
     destination_zone: Optional[int] = None
@@ -53,6 +99,13 @@ class PlanRequest(BaseModel):
         if not text:
             raise ValueError("must not be empty")
         return text
+
+    @field_validator("strategy")
+    @classmethod
+    def _strategy_ok(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return MobilityStrategy.parse(value).value
 
 
 class ContextChangeIn(BaseModel):

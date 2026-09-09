@@ -73,6 +73,9 @@ Rules:
 - If weather, disruptions, or history are unavailable, say they are unavailable.
 - Distinguish live Maps data, historical ML, Journey Builder structural estimates, and missing data.
 - Keep the explanation concise and grounded in the provided JSON only.
+- Write for a commuter: natural language, no internal IDs, no scores, no candidate counts,
+  no BEST_OVERALL / Decision Engine / Gemini / implementation terminology.
+- Never claim you selected the journey — the Decision Engine already did; you only explain it.
 """
 
 REPLAN_EXPLANATION_INSTRUCTION = """Explain a deterministic commute REPLAN for the user.

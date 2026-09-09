@@ -23,8 +23,15 @@ from src.agent.orchestrator import (
     OrchestratorRequest,
     plan_commute_with_adk,
 )
+from src.journey_builder.steps import attach_steps_to_top_selection
 from src.agent.schemas import recommendation_from_planner
-from src.api.schemas import ContextChangeIn, PlanRequest, PreferencesIn
+from src.api.schemas import ContextChangeIn, MobilityConstraintsIn, PlanRequest, PreferencesIn
+from src.agent.mobility_strategy import (
+    AccessoryMode,
+    MobilityConstraints,
+    merge_excluded_modes,
+    parse_strategy,
+)
 from src.decision_engine.models import (
     PROFILE_BALANCED,
     PROFILE_CHEAPEST,
@@ -183,6 +190,26 @@ def _resolve_landmark_coords(label: str):
     return None, None
 
 
+def _constraints_from_body(
+    body_constraints: Optional[MobilityConstraintsIn],
+) -> Optional[MobilityConstraints]:
+    if body_constraints is None:
+        return None
+    accessories = None
+    if body_constraints.allowed_accessory_modes is not None:
+        accessories = [
+            AccessoryMode.parse(m) for m in body_constraints.allowed_accessory_modes
+        ]
+    return MobilityConstraints(
+        excluded_modes=list(body_constraints.excluded_modes)
+        if body_constraints.excluded_modes is not None
+        else None,
+        max_walking_distance_meters=body_constraints.max_walking_distance_meters,
+        max_transfers=body_constraints.max_transfers,
+        allowed_accessory_modes=accessories,
+    )
+
+
 def orchestrator_request_from_plan(
     body: PlanRequest,
     *,
@@ -193,6 +220,26 @@ def orchestrator_request_from_plan(
         objective=body.objective,
         preference_profile_name=body.preference_profile,
     )
+    strategy = parse_strategy(body.strategy)
+    constraints = _constraints_from_body(body.constraints)
+    # Preserve existing exclusion behavior: union preferences + constraints.excluded_modes.
+    # Strategy / walking-m / transfers / accessories are enforced in evaluate_routes (Phase 7B).
+    merged_excluded = merge_excluded_modes(prefs.excluded_modes, constraints)
+    if merged_excluded != (list(prefs.excluded_modes) if prefs.excluded_modes else None):
+        prefs = UserPreferences(
+            time_weight=prefs.time_weight,
+            cost_weight=prefs.cost_weight,
+            walking_weight=prefs.walking_weight,
+            transfer_weight=prefs.transfer_weight,
+            congestion_weight=prefs.congestion_weight,
+            reliability_weight=prefs.reliability_weight,
+            preferred_modes=prefs.preferred_modes,
+            excluded_modes=merged_excluded,
+            max_walking_minutes=prefs.max_walking_minutes,
+            max_cost=prefs.max_cost,
+            avoid_heavy_traffic=prefs.avoid_heavy_traffic,
+        )
+
     o_lat, o_lon = _resolve_landmark_coords(body.origin)
     d_lat, d_lon = _resolve_landmark_coords(body.destination)
     if body.origin_lat is not None and body.origin_lon is not None:
@@ -219,6 +266,8 @@ def orchestrator_request_from_plan(
         preferences=prefs,
         origin_zone=body.origin_zone,
         destination_zone=body.destination_zone,
+        strategy=strategy,
+        constraints=constraints,
         invoke_gemini=bool(body.invoke_gemini),
         invoke_weather=bool(body.invoke_weather),
         invoke_historical=bool(body.invoke_historical),
@@ -282,7 +331,12 @@ def _evaluation_summary_from_orch(result: OrchestrationResult) -> Optional[Dict[
     }
 
 
-def _winning_journey(result: OrchestrationResult) -> Optional[Dict[str, Any]]:
+def _winning_journey(
+    result: OrchestrationResult,
+    *,
+    origin_label: Optional[str] = None,
+    destination_label: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Full journey matching Decision Engine winner (legs/statuses intact)."""
     rec_id = None
     if result.decision and result.decision.recommended_route_id:
@@ -293,13 +347,51 @@ def _winning_journey(result: OrchestrationResult) -> Optional[Dict[str, Any]]:
         return None
     for j in result.journeys:
         if j.candidate_id == rec_id:
-            return j.to_dict()
+            return j.to_dict(
+                origin_label=origin_label,
+                destination_label=destination_label,
+            )
     return None
 
 
-def serialize_orchestration_response(result: OrchestrationResult) -> Dict[str, Any]:
+def _top_journeys_from_evaluation(evaluation) -> Optional[List[Dict[str, Any]]]:
+    """Phase 7C diverse Top-5 list (recommended first)."""
+    if evaluation is None:
+        return None
+    top = getattr(evaluation, "top_selection", None)
+    if not top:
+        return None
+    if isinstance(top, dict):
+        return list(top.get("top_journeys") or [])
+    return None
+
+
+def serialize_orchestration_response(
+    result: OrchestrationResult,
+    *,
+    origin_label: Optional[str] = None,
+    destination_label: Optional[str] = None,
+) -> Dict[str, Any]:
     rec = result.recommendation
-    winner = _winning_journey(result)
+    winner = _winning_journey(
+        result,
+        origin_label=origin_label,
+        destination_label=destination_label,
+    )
+    top_selection = (
+        dict(result.evaluation.top_selection)
+        if result.evaluation and result.evaluation.top_selection
+        else None
+    )
+    top_selection = attach_steps_to_top_selection(
+        top_selection,
+        result.journeys,
+        origin_label=origin_label,
+        destination_label=destination_label,
+    )
+    top_journeys = (
+        list(top_selection.get("top_journeys") or []) if top_selection else None
+    )
     return {
         "ok": rec.error is None
         and (rec.recommended_route is not None or bool(result.journeys)),
@@ -310,7 +402,15 @@ def serialize_orchestration_response(result: OrchestrationResult) -> Dict[str, A
         else None,
         "recommended_journey": winner,
         "alternatives": [r.to_dict() for r in rec.alternatives],
-        "journeys": [j.to_dict() for j in result.journeys],
+        "top_journeys": top_journeys,
+        "top_selection": top_selection,
+        "journeys": [
+            j.to_dict(
+                origin_label=origin_label,
+                destination_label=destination_label,
+            )
+            for j in result.journeys
+        ],
         "explanation": rec.explanation,
         "reasons": list(rec.reason_codes),
         "evaluation": _evaluation_summary_from_orch(result),
@@ -388,6 +488,11 @@ def serialize_plan_response(
 ) -> Dict[str, Any]:
     """Legacy Maps-planner serialization (compat / fallback payloads)."""
     recommendation = recommendation_from_planner(planner_result, explanation)
+    top_selection = (
+        planner_result.evaluation.top_selection
+        if planner_result.evaluation
+        else None
+    )
     return {
         "ok": planner_result.error is None,
         "orchestration": "legacy_maps_planner",
@@ -397,6 +502,12 @@ def serialize_plan_response(
         else None,
         "recommended_journey": None,
         "alternatives": [r.to_dict() for r in recommendation.alternatives],
+        "top_journeys": (
+            list(top_selection.get("top_journeys") or [])
+            if isinstance(top_selection, dict)
+            else None
+        ),
+        "top_selection": dict(top_selection) if top_selection else None,
         "explanation": recommendation.explanation,
         "reasons": list(recommendation.reason_codes),
         "evaluation": _evaluation_summary(planner_result),
@@ -435,7 +546,11 @@ def execute_plan(
         repository=repo,
         traffic_get_routes=traffic_get_routes,
     )
-    payload = serialize_orchestration_response(result)
+    payload = serialize_orchestration_response(
+        result,
+        origin_label=body.origin,
+        destination_label=body.destination,
+    )
     payload["request"] = {
         "user_id": body.user_id,
         "origin": body.origin,
@@ -443,6 +558,8 @@ def execute_plan(
         "departure_time": body.departure_time,
         "objective": body.objective,
         "preference_profile": body.preference_profile,
+        "strategy": body.strategy,
+        "constraints": body.constraints.model_dump() if body.constraints else None,
         "origin_zone": body.origin_zone,
         "destination_zone": body.destination_zone,
         "preferences": body.preferences.model_dump() if body.preferences else None,
@@ -479,6 +596,15 @@ def execute_replan(body) -> Dict[str, Any]:
             "warnings": list(orch.recommendation.warnings),
             "previous_recommendation": None,
             "new_recommendation": None,
+            "recommendation": None,
+            "top_journeys": [],
+            "top_selection": {
+                "recommended": None,
+                "alternatives": [],
+                "selected_count": 0,
+                "max_count": 5,
+                "top_journeys": [],
+            },
             "context_change": change.to_dict(),
             "explanation": FALLBACK_NOTICE,
             "provenance": _provenance_block_from_orch(orch),
@@ -532,11 +658,30 @@ def execute_replan(body) -> Dict[str, Any]:
         (r for r in snapshot.routes if r.route_id == snapshot.selected_journey_id),
         snapshot.routes[0] if snapshot.routes else None,
     )
-    new_rec = (
-        replan.updated.evaluation.recommended_route
-        if replan.updated.evaluation
+    evaluation = replan.updated.evaluation if replan.updated else None
+    new_rec = evaluation.recommended_route if evaluation else None
+    top_selection = (
+        dict(evaluation.top_selection)
+        if evaluation and evaluation.top_selection
         else None
     )
+    origin_label = getattr(body.request, "origin", None)
+    destination_label = getattr(body.request, "destination", None)
+    top_selection = attach_steps_to_top_selection(
+        top_selection,
+        orch.journeys,
+        origin_label=origin_label,
+        destination_label=destination_label,
+    )
+    if top_selection is None:
+        top_selection = {
+            "recommended": None,
+            "alternatives": [],
+            "selected_count": 0,
+            "max_count": 5,
+            "top_journeys": [],
+        }
+    top_journeys = list(top_selection.get("top_journeys") or [])
 
     return {
         "ok": replan.updated.error is None and replan.error is None,
@@ -545,6 +690,10 @@ def execute_replan(body) -> Dict[str, Any]:
         "previous_route_id": replan.previous_route_id,
         "new_route_id": replan.new_route_id,
         "decision": replan.decision,
+        # Plan-aligned aliases (Phase 7E) — same DE Top-5 pipeline as /plan.
+        "recommendation": new_rec.to_dict() if new_rec else None,
+        "top_journeys": top_journeys,
+        "top_selection": top_selection,
         "previous_recommendation": prev_route.to_dict() if prev_route else None,
         "new_recommendation": new_rec.to_dict() if new_rec else None,
         "context_change": replan.context_change.to_dict(),
@@ -556,9 +705,7 @@ def execute_replan(body) -> Dict[str, Any]:
         "after": _evaluation_summary(replan.updated),
         "reasons": {
             "before": [],
-            "after": list(replan.updated.evaluation.reason_codes)
-            if replan.updated.evaluation
-            else [],
+            "after": list(evaluation.reason_codes) if evaluation else [],
         },
         "data_sources": list(replan.updated.data_sources),
         "provenance": {

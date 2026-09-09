@@ -57,6 +57,9 @@ String modeLabel(String mode) {
     case 'cab':
     case 'drive':
     case 'taxi':
+    case 'uber':
+    case 'ola':
+    case 'rideshare':
       return 'Cab';
     case 'metro':
     case 'bmrcl':
@@ -66,6 +69,7 @@ String modeLabel(String mode) {
       return 'Bus';
     case 'auto':
     case 'auto_rickshaw':
+    case 'rickshaw':
       return 'Auto';
     case 'walking':
     case 'walk':
@@ -108,16 +112,39 @@ String formatDurationLabel({
     if (travelTimeMinutes > 0) {
       return '~${travelTimeMinutes.toStringAsFixed(0)} min';
     }
-    return 'Duration unavailable';
+    return 'Time unavailable';
   }
   return '${travelTimeMinutes.toStringAsFixed(0)} min';
 }
 
 String agentExplanationOrFallback(String? explanation) {
+  // Prefer [buildUserFacingExplanation] / [explanationForPlan] on ResultPage.
+  // Kept for callers that only have raw prose — strips technical backend copy.
   final text = (explanation ?? '').trim();
   if (text.isEmpty) {
-    return 'Commute Agent selected this journey based on your preferences '
-        'and current route information.';
+    return 'Commute Agent selected this journey because it best matches '
+        'your preferences.';
+  }
+  final lower = text.toLowerCase();
+  const technical = [
+    'deterministic decision engine',
+    'decision engine',
+    'best_overall',
+    'candidates considered',
+    'gemini unavailable',
+    'deterministic fallback',
+    'gemini',
+    'score=',
+  ];
+  for (final m in technical) {
+    if (lower.contains(m)) {
+      return 'Commute Agent selected this journey because it best matches '
+          'your preferences.';
+    }
+  }
+  if (RegExp(r'\bj_[a-z0-9]{4,}\b', caseSensitive: false).hasMatch(text)) {
+    return 'Commute Agent selected this journey because it best matches '
+        'your preferences.';
   }
   return text;
 }

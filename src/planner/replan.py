@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 from src.decision_engine.models import EvaluationResult, RouteCandidate, UserPreferences
 from src.decision_engine.evaluator import evaluate_routes
+from src.decision_engine.top5 import select_top_journeys
 from src.planner.models import (
     CommuteRequest,
     ContextChange,
@@ -504,7 +505,13 @@ def replan_commute(
         if kept is not None:
             evaluation = replace(evaluation, recommended_route=kept)
             factors.append("aligned_recommended_route_to_policy_decision")
-
+            # Refresh Top-5 so rank-1 matches the authoritative recommendation.
+            evaluation = replace(
+                evaluation,
+                top_selection=select_top_journeys(
+                    evaluation, preferences
+                ).to_dict(),
+            )
     new_request = initial_request
     if context_change.updated_departure_time or context_change.excluded_modes_update:
         new_request = replace(

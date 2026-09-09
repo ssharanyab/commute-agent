@@ -24,6 +24,13 @@ from src.decision_engine.models import (
     CATEGORY_MOST_RELIABLE,
 )
 from src.decision_engine.evaluator import evaluate_routes
+from src.decision_engine.top5 import (
+    MAX_TOP_JOURNEYS,
+    TopJourneyOption,
+    TopJourneySelection,
+    diversity_signature,
+    select_top_journeys,
+)
 
 __all__ = [
     "RouteCandidate",
@@ -43,4 +50,9 @@ __all__ = [
     "CATEGORY_FASTEST",
     "CATEGORY_CHEAPEST",
     "CATEGORY_MOST_RELIABLE",
+    "MAX_TOP_JOURNEYS",
+    "TopJourneyOption",
+    "TopJourneySelection",
+    "diversity_signature",
+    "select_top_journeys",
 ]

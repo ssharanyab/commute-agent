@@ -749,7 +749,7 @@ void main() {
 
     testWidgets('successful plan displays recommendation', (tester) async {
       await pumpResults(tester, seededProvider());
-      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.text('Best for you'), findsOneWidget);
       expect(find.textContaining('Cab'), findsWidgets);
       expect(find.textContaining('33 min'), findsWidgets);
       expect(find.textContaining('₹420'), findsWidgets);
@@ -771,15 +771,16 @@ void main() {
 
     testWidgets('route categories render', (tester) async {
       await pumpResults(tester, seededProvider());
-      expect(find.text('OTHER OPTIONS'), findsOneWidget);
+      expect(find.text('Other ways to go'), findsOneWidget);
       expect(find.textContaining('Lower cost'), findsOneWidget);
       expect(find.textContaining('Metro'), findsWidgets);
     });
 
     testWidgets('why this route uses backend reasons', (tester) async {
       await pumpResults(tester, seededProvider());
-      expect(find.text('WHY THIS?'), findsOneWidget);
-      expect(find.text('Fastest option'), findsOneWidget);
+      expect(find.text('Why this?'), findsOneWidget);
+      expect(find.text('Cab is fastest for your preferences.'), findsOneWidget);
+      expect(find.text('Faster than other known options'), findsOneWidget);
       expect(find.text('Less walking'), findsOneWidget);
     });
 
@@ -787,7 +788,7 @@ void main() {
       final provider = seededProvider(withPolyline: true);
       await pumpResults(tester, provider);
       expect(find.byType(RouteMap), findsNothing);
-      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.text('Best for you'), findsOneWidget);
       expect(find.byKey(const Key('hero_recommendation')), findsOneWidget);
       expect(find.byKey(const Key('mode_sequence')), findsOneWidget);
       expect(provider.plan?.recommendation?.googlePolyline, '_p~iF~ps|U');
@@ -797,13 +798,13 @@ void main() {
     testWidgets('missing polyline still shows recommendation without map', (tester) async {
       await pumpResults(tester, seededProvider(withPolyline: false));
       expect(find.byType(RouteMap), findsNothing);
-      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.text('Best for you'), findsOneWidget);
     });
 
     testWidgets('no recommendation empty state', (tester) async {
       await pumpResults(tester, seededProvider(noRecommendation: true));
       expect(
-        find.text('No suitable journey was found for these preferences.'),
+        find.textContaining("couldn't find a suitable way"),
         findsOneWidget,
       );
     });
@@ -812,10 +813,11 @@ void main() {
       await pumpResults(tester, seededProvider());
       expect(find.byKey(const Key('replan_button')), findsOneWidget);
       expect(find.byKey(const Key('maps_handoff')), findsOneWidget);
-      final mapsBtn = tester.widget<OutlinedButton>(
+      final mapsBtn = tester.widget<FilledButton>(
         find.byKey(const Key('maps_handoff')),
       );
       expect(mapsBtn.onPressed, isNotNull);
+      expect(find.text('Take this journey'), findsOneWidget);
     });
 
     testWidgets('maps handoff disabled without origin/destination',
@@ -823,7 +825,7 @@ void main() {
       final provider = seededProvider();
       provider.lastPlanRequest = {};
       await pumpResults(tester, provider);
-      final mapsBtn = tester.widget<OutlinedButton>(
+      final mapsBtn = tester.widget<FilledButton>(
         find.byKey(const Key('maps_handoff')),
       );
       expect(mapsBtn.onPressed, isNull);
@@ -835,7 +837,7 @@ void main() {
       provider.replanError = 'Replan failed: network';
       await pumpResults(tester, provider);
       expect(find.textContaining('Replan failed'), findsOneWidget);
-      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.text('Best for you'), findsOneWidget);
     });
   });
 
