@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../domain/entities/commute_plan.dart';
 import '../../../domain/entities/commute_route.dart';
 import '../../../domain/entities/context_change.dart';
 import '../../../domain/entities/historical_signal.dart';
+import '../../../domain/entities/journey.dart';
 import '../../../domain/entities/replan_result.dart';
 import '../../providers/commute_provider.dart';
 import '../../utils/labels.dart';
+import '../../utils/mode_presentation.dart';
 import '../../widgets/commute_widgets.dart';
-import '../../widgets/route_map.dart';
+import '../../widgets/journey_timeline.dart';
 
 class ResultPage extends StatelessWidget {
   const ResultPage({super.key, required this.apiBaseUrl});
@@ -32,12 +35,12 @@ class ResultPage extends StatelessWidget {
   Future<void> _openMapsHandoff({
     required String origin,
     required String destination,
+    required String travelMode,
   }) async {
-    final uri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1'
-      '&origin=${Uri.encodeComponent(origin)}'
-      '&destination=${Uri.encodeComponent(destination)}'
-      '&travelmode=driving',
+    final uri = googleMapsDirectionsUri(
+      origin: origin,
+      destination: destination,
+      travelMode: travelMode,
     );
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -48,155 +51,248 @@ class ResultPage extends StatelessWidget {
     final plan = provider.plan;
     if (plan == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Your route')),
+        appBar: AppBar(title: const Text('Your commute')),
         body: const Center(child: Text('No plan available.')),
       );
     }
 
-    final rec = plan.recommendation;
+    final view = _RecommendationView.fromPlan(plan, provider.replanResult);
     final origin = (provider.lastPlanRequest?['origin'] as String?) ?? '';
     final destination =
         (provider.lastPlanRequest?['destination'] as String?) ?? '';
     final replan = provider.replanResult;
     final replanLoading = provider.isReplanLoading;
+    final travelMode = mapsTravelModeFor(view.route, view.journey);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your route'),
+        title: const Text('Your commute'),
         centerTitle: false,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-        children: [
-          RouteMap(encodedPolyline: rec?.googlePolyline),
-          const SizedBox(height: 16),
-          if (rec != null)
-            _RecommendationCard(route: rec)
-          else
-            const _EmptyRecommendation(),
-          if (rec?.historicalSignal != null) ...[
-            const SizedBox(height: 12),
-            _HistoricalCard(
-              signal: rec!.historicalSignal!,
-              currentMinutes: rec.travelTimeMinutes,
-            ),
-          ],
-          const SizedBox(height: 20),
-          Text(
-            'Why this route?',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+            children: [
+              if (replan != null) ...[
+                _ReplanBanner(replan: replan),
+                const SizedBox(height: 16),
+              ],
+              if (view.route != null)
+                _HeroRecommendation(
+                  route: view.route!,
+                  journey: view.journey,
+                  sequence: view.sequence,
+                )
+              else
+                const _EmptyRecommendation(),
+              if (view.route?.historicalSignal != null) ...[
+                const SizedBox(height: 12),
+                _HistoricalCard(
+                  signal: view.route!.historicalSignal!,
+                  currentMinutes: view.route!.travelTimeMinutes,
+                  durationKnown: view.route!.hasKnownDuration,
                 ),
-          ),
-          const SizedBox(height: 8),
-          if (plan.reasons.isEmpty)
-            Text(
-              'Selected as the best fit for your preferences.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            )
-          else
-            ...plan.reasons
-                .where((r) => r.toUpperCase() != 'CONSTRAINT_VIOLATION')
-                .map(
-                  (r) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.check_circle_outline,
-                          size: 18,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(reasonLabel(r))),
-                      ],
-                    ),
-                  ),
-                ),
-          if (plan.explanation.trim().isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              plan.explanation.trim(),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ],
-          if (plan.routeCategories.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            Text(
-              'Other options',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 118,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: plan.routeCategories.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, i) {
-                  final cat = plan.routeCategories[i];
-                  return _CategoryCard(
-                    title: categoryLabel(cat.category),
-                    route: cat.route,
-                  );
-                },
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-          FilledButton.tonal(
-            key: const Key('replan_button'),
-            onPressed: replanLoading ? null : () => _openReplanSheet(context),
-            child: replanLoading
-                ? const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+              ],
+              if (view.journey != null && view.journey!.legs.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'YOUR JOURNEY',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
                       ),
-                      SizedBox(width: 10),
-                      Text('Updating route…'),
-                    ],
-                  )
-                : const Text('REPLAN'),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            key: const Key('maps_handoff'),
-            onPressed: (origin.isEmpty || destination.isEmpty)
-                ? null
-                : () => _openMapsHandoff(
-                      origin: origin,
-                      destination: destination,
-                    ),
-            icon: const Icon(Icons.navigation_outlined),
-            label: const Text('OPEN IN GOOGLE MAPS'),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Opens Google Maps with your origin and destination. '
-            'This may not match the exact selected route geometry.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
+                const SizedBox(height: 12),
+                JourneyTimeline(journey: view.journey!),
+              ],
+              const SizedBox(height: 24),
+              Text(
+                'WHY THIS?',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                agentExplanationOrFallback(plan.explanation),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              if (plan.reasons.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ...plan.reasons
+                    .where((r) => r.toUpperCase() != 'CONSTRAINT_VIOLATION')
+                    .map(
+                      (r) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(reasonLabel(r))),
+                          ],
+                        ),
+                      ),
+                    ),
+              ],
+              if (plan.routeCategories.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'OTHER OPTIONS',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                ...plan.routeCategories.map(
+                  (cat) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _AlternativeTile(
+                      title: categoryLabel(cat.category),
+                      route: cat.route,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              FilledButton.tonal(
+                key: const Key('replan_button'),
+                onPressed:
+                    replanLoading ? null : () => _openReplanSheet(context),
+                child: replanLoading
+                    ? const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 10),
+                          Text('Updating your commute…'),
+                        ],
+                      )
+                    : const Text('Replan my commute'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                key: const Key('maps_handoff'),
+                onPressed: (origin.isEmpty || destination.isEmpty)
+                    ? null
+                    : () => _openMapsHandoff(
+                          origin: origin,
+                          destination: destination,
+                          travelMode: travelMode,
+                        ),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open in Google Maps'),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Opens Google Maps for navigation. Commute Agent remains '
+                'your decision layer — Maps is for getting there.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              if (provider.replanError != null) ...[
+                const SizedBox(height: 12),
+                ErrorBanner(message: provider.replanError!),
+              ],
+              // Keep polyline/token available to navigation layer without rendering a map.
+              if (view.route?.googlePolyline != null ||
+                  view.route?.googleRouteToken != null)
+                const SizedBox.shrink(
+                  key: Key('nav_payload_retained'),
+                ),
+            ],
           ),
-          if (provider.replanError != null) ...[
-            const SizedBox(height: 12),
-            ErrorBanner(message: provider.replanError!),
-          ],
-          if (replan != null) ...[
-            const SizedBox(height: 24),
-            _ReplanSummary(replan: replan),
-          ],
-        ],
+        ),
       ),
+    );
+  }
+}
+
+/// Resolves authoritative recommendation from Decision Engine fields.
+class _RecommendationView {
+  final CommuteRoute? route;
+  final RecommendedJourney? journey;
+  final String sequence;
+
+  const _RecommendationView({
+    required this.route,
+    required this.journey,
+    required this.sequence,
+  });
+
+  factory _RecommendationView.fromPlan(
+    CommutePlan plan,
+    ReplanResult? replan,
+  ) {
+    // After a changed replan, show the new authoritative route from backend.
+    if (replan != null &&
+        replan.recommendationChanged &&
+        replan.newRecommendation != null) {
+      final route = replan.newRecommendation!;
+      RecommendedJourney? journey;
+      if (plan.recommendedJourney?.candidateId == route.routeId) {
+        journey = plan.recommendedJourney;
+      } else {
+        for (final j in plan.journeys) {
+          if (j.candidateId == route.routeId) {
+            journey = j;
+            break;
+          }
+        }
+      }
+      return _RecommendationView(
+        route: route,
+        journey: journey,
+        sequence: journey != null
+            ? modeSequenceForJourney(journey)
+            : modeSequenceForRoute(route),
+      );
+    }
+
+    final decisionId = plan.decision?.recommendedRouteId;
+    var route = plan.recommendation;
+    var journey = plan.recommendedJourney;
+
+    // Prefer journey matching Decision Engine winner.
+    if (decisionId != null) {
+      if (journey == null || journey.candidateId != decisionId) {
+        for (final j in plan.journeys) {
+          if (j.candidateId == decisionId) {
+            journey = j;
+            break;
+          }
+        }
+      }
+      if (route == null || route.routeId != decisionId) {
+        // Keep recommendation if it already matches; otherwise leave as-is
+        // (backend recommendation should match decision).
+        if (plan.recommendation?.routeId == decisionId) {
+          route = plan.recommendation;
+        }
+      }
+    }
+
+    final sequence = journey != null
+        ? modeSequenceForJourney(journey)
+        : (route != null ? modeSequenceForRoute(route) : 'Route');
+
+    return _RecommendationView(
+      route: route,
+      journey: journey,
+      sequence: sequence,
     );
   }
 }
@@ -207,10 +303,11 @@ class _EmptyRecommendation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          'No route matches your current constraints.',
+          'No suitable journey was found for these preferences.',
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ),
@@ -218,15 +315,28 @@ class _EmptyRecommendation extends StatelessWidget {
   }
 }
 
-class _RecommendationCard extends StatelessWidget {
-  const _RecommendationCard({required this.route});
+class _HeroRecommendation extends StatelessWidget {
+  const _HeroRecommendation({
+    required this.route,
+    required this.journey,
+    required this.sequence,
+  });
 
   final CommuteRoute route;
+  final RecommendedJourney? journey;
+  final String sequence;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final walkingMeters = journey?.walkingDistanceMeters ??
+        ((route.accessWalkingMeters ?? 0) +
+            (route.transferWalkingMeters ?? 0) +
+            (route.egressWalkingMeters ?? 0));
+    final transfers = journey?.transferCount ?? route.transfers;
+
     return Card(
+      key: const Key('hero_recommendation'),
       elevation: 0,
       color: scheme.primaryContainer.withValues(alpha: 0.45),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -243,53 +353,46 @@ class _RecommendationCard extends StatelessWidget {
                     letterSpacing: 0.6,
                   ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              modeLabel(route.mode),
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 16,
-              runSpacing: 6,
-              children: [
-                _Stat(
-                  icon: Icons.schedule,
-                  text: '${route.travelTimeMinutes.toStringAsFixed(0)} min',
-                ),
-                _Stat(
-                  icon: Icons.currency_rupee,
-                  text: '₹${route.cost.toStringAsFixed(0)}',
-                ),
-                if (route.walkingMinutes > 0)
-                  _Stat(
-                    icon: Icons.directions_walk,
-                    text: '${route.walkingMinutes.toStringAsFixed(0)} min walk',
+            Text(
+              sequence,
+              key: const Key('mode_sequence'),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
                   ),
-                if (route.transfers > 0)
-                  _Stat(
-                    icon: Icons.swap_horiz,
-                    text: '${route.transfers} transfer${route.transfers == 1 ? '' : 's'}',
-                  ),
-              ],
             ),
             const SizedBox(height: 12),
             Wrap(
-              spacing: 8,
+              spacing: 16,
+              runSpacing: 8,
               children: [
-                Chip(
-                  label: Text(
-                    'Reliability: ${reliabilityBand(route.reliabilityScore)}',
+                _Stat(
+                  icon: Icons.schedule,
+                  text: formatDurationLabel(
+                    travelTimeMinutes: route.travelTimeMinutes,
+                    known: route.hasKnownDuration,
                   ),
-                  visualDensity: VisualDensity.compact,
                 ),
-                if (route.congestionScore <= 0.35)
-                  const Chip(
-                    label: Text('Low traffic'),
-                    visualDensity: VisualDensity.compact,
+                _Stat(
+                  icon: Icons.currency_rupee,
+                  text: formatCostLabel(
+                    cost: route.cost,
+                    known: route.hasKnownCost,
+                    partialKnownCostInr: route.partialKnownCostInr,
                   ),
+                ),
+                _Stat(
+                  icon: Icons.directions_walk,
+                  text: walkingSummary(
+                    walkingMinutes: route.walkingMinutes,
+                    walkingMeters: walkingMeters > 0 ? walkingMeters : null,
+                  ),
+                ),
+                _Stat(
+                  icon: Icons.swap_horiz,
+                  text: transferSummary(transfers),
+                ),
               ],
             ),
           ],
@@ -312,8 +415,67 @@ class _Stat extends StatelessWidget {
       children: [
         Icon(icon, size: 18),
         const SizedBox(width: 4),
-        Text(text, style: Theme.of(context).textTheme.titleMedium),
+        Flexible(
+          child: Text(text, style: Theme.of(context).textTheme.titleSmall),
+        ),
       ],
+    );
+  }
+}
+
+class _AlternativeTile extends StatelessWidget {
+  const _AlternativeTile({required this.title, required this.route});
+
+  final String title;
+  final CommuteRoute route;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.primary,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              modeSequenceForRoute(route),
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              [
+                formatDurationLabel(
+                  travelTimeMinutes: route.travelTimeMinutes,
+                  known: route.hasKnownDuration,
+                ),
+                formatCostLabel(
+                  cost: route.cost,
+                  known: route.hasKnownCost,
+                  partialKnownCostInr: route.partialKnownCostInr,
+                ),
+              ].join(' · '),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -322,10 +484,12 @@ class _HistoricalCard extends StatelessWidget {
   const _HistoricalCard({
     required this.signal,
     required this.currentMinutes,
+    required this.durationKnown,
   });
 
   final HistoricalSignal signal;
   final double currentMinutes;
+  final bool durationKnown;
 
   @override
   Widget build(BuildContext context) {
@@ -354,10 +518,10 @@ class _HistoricalCard extends StatelessWidget {
     if (signal.deviationPercent != null) {
       final pct = signal.deviationPercent!.abs().toStringAsFixed(0);
       final above = signal.deviationPercent! > 0;
+      lines.add(above ? '$pct% above usual' : '$pct% below usual');
       lines.add(
-        above ? '$pct% above usual' : '$pct% below usual',
+        'Current: ${formatDurationLabel(travelTimeMinutes: currentMinutes, known: durationKnown)}',
       );
-      lines.add('Current: ${currentMinutes.toStringAsFixed(0)} min');
     }
 
     if (lines.isEmpty) return const SizedBox.shrink();
@@ -384,104 +548,50 @@ class _HistoricalCard extends StatelessWidget {
   }
 }
 
-class _CategoryCard extends StatelessWidget {
-  const _CategoryCard({required this.title, required this.route});
-
-  final String title;
-  final CommuteRoute route;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 150,
-      child: Card(
-        elevation: 0,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title.toUpperCase(),
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                modeLabel(route.mode),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              const Spacer(),
-              Text('${route.travelTimeMinutes.toStringAsFixed(0)} min'),
-              Text('₹${route.cost.toStringAsFixed(0)}'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReplanSummary extends StatelessWidget {
-  const _ReplanSummary({required this.replan});
+class _ReplanBanner extends StatelessWidget {
+  const _ReplanBanner({required this.replan});
 
   final ReplanResult replan;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final changed = replan.recommendationChanged;
-    final prev = replan.previousRecommendation;
-    final next = replan.newRecommendation;
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.secondaryContainer.withValues(
-            alpha: 0.4,
-          ),
+    return DecoratedBox(
+      key: const Key('replan_banner'),
+      decoration: BoxDecoration(
+        color: changed
+            ? scheme.tertiaryContainer.withValues(alpha: 0.55)
+            : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              changed ? 'ROUTE UPDATED' : 'ROUTE UNCHANGED',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              changed ? 'Your commute changed' : 'Your commute is unchanged',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             Text(
-              'Before',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            Text(
-              prev == null
-                  ? (replan.previousRouteId ?? '—')
-                  : '${modeLabel(prev.mode)} · ${prev.travelTimeMinutes.toStringAsFixed(0)} min',
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'After',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            Text(
-              next == null
-                  ? (replan.newRouteId ?? '—')
-                  : '${modeLabel(next.mode)} · ${next.travelTimeMinutes.toStringAsFixed(0)} min',
+              changed
+                  ? 'Commute Agent found a better option based on the '
+                      'updated conditions.'
+                  : 'Commute Agent checked again — your current plan still fits.',
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
             if (replan.explanation.trim().isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
-                'Why did it change?',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
+                replan.explanation.trim(),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
               ),
-              const SizedBox(height: 4),
-              Text(replan.explanation.trim()),
             ],
           ],
         ),
@@ -530,7 +640,7 @@ class _ReplanSheetState extends State<_ReplanSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Simulate a context change to re-evaluate your route.',
+              'Tell Commute Agent what changed and it will re-evaluate.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             SwitchListTile(
@@ -569,7 +679,7 @@ class _ReplanSheetState extends State<_ReplanSheet> {
                   ),
                 );
               },
-              child: const Text('UPDATE RECOMMENDATION'),
+              child: const Text('Update recommendation'),
             ),
           ],
         ),

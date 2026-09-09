@@ -1,41 +1,133 @@
 """
-API service adapters — call existing planner/replan/agent code only.
+API service adapters — HTTP → ADK Mobility Orchestrator.
+
+Phase 6F: planning uses plan_commute_with_adk (capabilities → Journey Builder →
+enrichment → Decision Engine → optional Gemini explanation).
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.agent.config import (
-    FALLBACK_NOTICE,
-    adk_importable,
-    gemini_credentials_available,
+from src.agent.adaptive import (
+    AdaptiveReplanRequest,
+    run_adaptive_replan_from_snapshot,
+    snapshot_from_orchestration,
 )
-from src.agent.planner import (
-    MODE_ADK_GEMINI,
-    MODE_DETERMINISTIC_FALLBACK,
-    _invoke_adk_explanation,
+from src.agent.config import FALLBACK_NOTICE, gemini_credentials_available
+from src.agent.demo_od import BENGALURU_LANDMARKS
+from src.agent.orchestrator import (
+    OrchestrationResult,
+    OrchestratorRequest,
+    plan_commute_with_adk,
 )
-from src.agent.replan import run_adaptive_replan
 from src.agent.schemas import recommendation_from_planner
 from src.api.schemas import ContextChangeIn, PlanRequest, PreferencesIn
-from src.decision_engine.models import UserPreferences
+from src.decision_engine.models import (
+    PROFILE_BALANCED,
+    PROFILE_CHEAPEST,
+    PROFILE_FASTEST,
+    PROFILE_LOW_TRAFFIC,
+    PROFILE_LOW_WALKING,
+    PROFILE_RELIABLE,
+    UserPreferences,
+    preference_profile,
+)
 from src.mobility.models import TravelMode
 from src.mobility.route_adapter import field_provenance
+from src.network.file_repository import FileStaticMobilityRepository
+from src.network.repository import StaticMobilityDataRepository
 from src.planner.models import CommuteRequest, ContextChange, PlannerResult
-from src.planner.service import plan_commute
 
 
-def _preferences_from_body(prefs: Optional[PreferencesIn]) -> UserPreferences:
+_DEFAULT_REPO: Optional[StaticMobilityDataRepository] = None
+_OBJECTIVE_TO_PROFILE = {
+    "fastest": PROFILE_FASTEST,
+    "cheapest": PROFILE_CHEAPEST,
+    "low_walking": PROFILE_LOW_WALKING,
+    "low-walking": PROFILE_LOW_WALKING,
+    "reliable": PROFILE_RELIABLE,
+    "low_traffic": PROFILE_LOW_TRAFFIC,
+    "low-traffic": PROFILE_LOW_TRAFFIC,
+    "balanced": PROFILE_BALANCED,
+}
+
+
+def default_mobility_repository() -> Optional[StaticMobilityDataRepository]:
+    """Load published mobility snapshots when present (real Bengaluru network)."""
+    global _DEFAULT_REPO
+    if _DEFAULT_REPO is not None:
+        return _DEFAULT_REPO
+    root = Path("data/mobility_network")
+    if not root.exists():
+        return None
+    repo = FileStaticMobilityRepository(root)
+    if repo.get_active_snapshot("bmtc") is None and repo.get_active_snapshot("bmrcl") is None:
+        return None
+    _DEFAULT_REPO = repo
+    return _DEFAULT_REPO
+
+
+def set_mobility_repository(repo: Optional[StaticMobilityDataRepository]) -> None:
+    """Test hook to inject / clear the default repository."""
+    global _DEFAULT_REPO
+    _DEFAULT_REPO = repo
+
+
+def _merge_preferences(
+    prefs: Optional[PreferencesIn],
+    *,
+    objective: Optional[str],
+    preference_profile_name: Optional[str],
+) -> UserPreferences:
+    """Apply named profile for soft weights, then overlay body hard constraints."""
+    profile_key = (preference_profile_name or objective or "").strip()
+    if profile_key:
+        mapped = _OBJECTIVE_TO_PROFILE.get(profile_key.lower(), profile_key)
+        base = preference_profile(mapped)
+    else:
+        base = UserPreferences()
+
     if prefs is None:
-        return UserPreferences()
+        return base
+
+    use_profile_weights = bool(profile_key)
+    body_looks_default = (
+        prefs.time_weight == 1.0
+        and prefs.cost_weight == 1.0
+        and prefs.walking_weight == 1.0
+        and prefs.transfer_weight == 1.0
+        and prefs.congestion_weight == 1.0
+        and prefs.reliability_weight == 1.0
+    )
+    if use_profile_weights and body_looks_default:
+        tw, cw, ww, xw, gw, rw = (
+            base.time_weight,
+            base.cost_weight,
+            base.walking_weight,
+            base.transfer_weight,
+            base.congestion_weight,
+            base.reliability_weight,
+        )
+    else:
+        tw, cw, ww, xw, gw, rw = (
+            prefs.time_weight,
+            prefs.cost_weight,
+            prefs.walking_weight,
+            prefs.transfer_weight,
+            prefs.congestion_weight,
+            prefs.reliability_weight,
+        )
+
     return UserPreferences(
-        time_weight=prefs.time_weight,
-        cost_weight=prefs.cost_weight,
-        walking_weight=prefs.walking_weight,
-        transfer_weight=prefs.transfer_weight,
-        congestion_weight=prefs.congestion_weight,
-        reliability_weight=prefs.reliability_weight,
+        time_weight=tw,
+        cost_weight=cw,
+        walking_weight=ww,
+        transfer_weight=xw,
+        congestion_weight=gw,
+        reliability_weight=rw,
         preferred_modes=prefs.preferred_modes,
         excluded_modes=prefs.excluded_modes,
         max_walking_minutes=prefs.max_walking_minutes,
@@ -51,7 +143,11 @@ def commute_request_from_plan(body: PlanRequest) -> CommuteRequest:
         destination=body.destination,
         departure_time=body.departure_time,
         objective=body.objective,
-        preferences=_preferences_from_body(body.preferences),
+        preferences=_merge_preferences(
+            body.preferences,
+            objective=body.objective,
+            preference_profile_name=body.preference_profile,
+        ),
         origin_zone=body.origin_zone,
         destination_zone=body.destination_zone,
         modes=body.modes,
@@ -74,8 +170,172 @@ def context_change_from_body(body: ContextChangeIn) -> ContextChange:
     )
 
 
+def _parse_departure(raw: Optional[str]) -> datetime:
+    if not raw:
+        return datetime.now(timezone.utc)
+    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
+
+def _resolve_landmark_coords(label: str):
+    place = BENGALURU_LANDMARKS.get((label or "").strip().lower())
+    if place:
+        return place.latitude, place.longitude
+    return None, None
+
+
+def orchestrator_request_from_plan(
+    body: PlanRequest,
+    *,
+    invoke_live_traffic: Optional[bool] = None,
+) -> OrchestratorRequest:
+    prefs = _merge_preferences(
+        body.preferences,
+        objective=body.objective,
+        preference_profile_name=body.preference_profile,
+    )
+    o_lat, o_lon = _resolve_landmark_coords(body.origin)
+    d_lat, d_lon = _resolve_landmark_coords(body.destination)
+    if body.origin_lat is not None and body.origin_lon is not None:
+        o_lat, o_lon = body.origin_lat, body.origin_lon
+    if body.destination_lat is not None and body.destination_lon is not None:
+        d_lat, d_lon = body.destination_lat, body.destination_lon
+
+    if invoke_live_traffic is not None:
+        traffic = invoke_live_traffic
+    elif body.invoke_live_traffic is not None:
+        traffic = body.invoke_live_traffic
+    else:
+        traffic = True
+
+    return OrchestratorRequest(
+        user_id=body.user_id,
+        origin=body.origin,
+        destination=body.destination,
+        departure_time=_parse_departure(body.departure_time),
+        origin_lat=o_lat,
+        origin_lon=o_lon,
+        destination_lat=d_lat,
+        destination_lon=d_lon,
+        preferences=prefs,
+        origin_zone=body.origin_zone,
+        destination_zone=body.destination_zone,
+        invoke_gemini=bool(body.invoke_gemini),
+        invoke_weather=bool(body.invoke_weather),
+        invoke_historical=bool(body.invoke_historical),
+        invoke_live_traffic=bool(traffic),
+        allow_legacy_maps_fallback=bool(body.allow_legacy_maps_fallback),
+        raw_text=f"Plan commute from {body.origin} to {body.destination}.",
+    )
+
+
+def _provenance_block_from_orch(result: OrchestrationResult) -> Dict[str, Any]:
+    sources = list(result.recommendation.data_sources or [])
+    if result.metadata and result.metadata.network_snapshot_versions:
+        sources.append("mobility_network_snapshots")
+    if result.enrichment_results:
+        sources.append("google_maps_routes")
+    return {
+        "data_sources": sorted(set(sources)),
+        "historical_signal_used": bool(result.recommendation.historical_signal_used),
+        "network_snapshot_versions": dict(
+            result.metadata.network_snapshot_versions or {}
+        ),
+        "capabilities": [c.to_dict() for c in (result.metadata.capabilities or [])],
+        "field_policy": {
+            "DRIVE": field_provenance(TravelMode.DRIVE),
+            "TRANSIT": field_provenance(TravelMode.TRANSIT),
+            "WALK": field_provenance(TravelMode.WALK),
+        },
+        "notes": [
+            "orchestration = ADK MobilityOrchestrator",
+            "decision = Decision Engine (authoritative)",
+            "gemini = explanation only",
+        ],
+    }
+
+
+def _evaluation_summary_from_orch(result: OrchestrationResult) -> Optional[Dict[str, Any]]:
+    evaluation = result.evaluation
+    if evaluation is None:
+        return None
+    rec = evaluation.recommended_route
+    return {
+        "score": evaluation.score,
+        "reason_codes": list(evaluation.reason_codes),
+        "recommended_route_id": rec.route_id if rec else None,
+        "route_categories": [
+            {"category": c.category, "route_id": c.route.route_id}
+            for c in (evaluation.route_categories or [])
+        ],
+        "ranked": [
+            {
+                "route_id": sr.route.route_id,
+                "final_score": sr.final_score,
+                "is_valid": sr.is_valid,
+                "reason_codes": list(sr.reason_codes),
+                "cost_status": getattr(sr.route, "cost_status", None),
+                "duration_status": getattr(sr.route, "duration_status", None),
+                "mode_signature": getattr(sr.route, "mode_signature", None),
+            }
+            for sr in evaluation.ranked_routes
+        ],
+    }
+
+
+def _winning_journey(result: OrchestrationResult) -> Optional[Dict[str, Any]]:
+    """Full journey matching Decision Engine winner (legs/statuses intact)."""
+    rec_id = None
+    if result.decision and result.decision.recommended_route_id:
+        rec_id = result.decision.recommended_route_id
+    elif result.evaluation and result.evaluation.recommended_route:
+        rec_id = result.evaluation.recommended_route.route_id
+    if not rec_id:
+        return None
+    for j in result.journeys:
+        if j.candidate_id == rec_id:
+            return j.to_dict()
+    return None
+
+
+def serialize_orchestration_response(result: OrchestrationResult) -> Dict[str, Any]:
+    rec = result.recommendation
+    winner = _winning_journey(result)
+    return {
+        "ok": rec.error is None
+        and (rec.recommended_route is not None or bool(result.journeys)),
+        "orchestration": "adk_mobility_orchestrator",
+        "request": {},
+        "recommendation": rec.recommended_route.to_dict()
+        if rec.recommended_route
+        else None,
+        "recommended_journey": winner,
+        "alternatives": [r.to_dict() for r in rec.alternatives],
+        "journeys": [j.to_dict() for j in result.journeys],
+        "explanation": rec.explanation,
+        "reasons": list(rec.reason_codes),
+        "evaluation": _evaluation_summary_from_orch(result),
+        "decision": result.decision.to_dict() if result.decision else None,
+        "data_sources": list(rec.data_sources),
+        "provenance": _provenance_block_from_orch(result),
+        "historical_context": result.historical.to_dict() if result.historical else None,
+        "historical_signal_used": rec.historical_signal_used,
+        "weather_context": result.weather.to_dict() if result.weather else None,
+        "warnings": list(rec.warnings),
+        "error": rec.error,
+        "error_detail": None,
+        "gemini": {
+            "available": result.gemini_available,
+            "invoked": result.gemini_invoked,
+            "adk_invoked": result.adk_invoked,
+            "mode": result.mode,
+        },
+        "metadata": result.metadata.to_dict() if result.metadata else None,
+        "candidate_count": len(result.journeys),
+        "routes": [c.to_dict() for c in result.route_candidates],
+    }
+
+
 def _provenance_block(planner_result: PlannerResult) -> Dict[str, Any]:
-    """Static adapter provenance + result data sources (no fabricated Maps facts)."""
     return {
         "data_sources": list(planner_result.data_sources),
         "historical_signal_used": bool(planner_result.historical_signal_used),
@@ -126,13 +386,16 @@ def serialize_plan_response(
     adk_invoked: bool,
     mode: str,
 ) -> Dict[str, Any]:
+    """Legacy Maps-planner serialization (compat / fallback payloads)."""
     recommendation = recommendation_from_planner(planner_result, explanation)
     return {
         "ok": planner_result.error is None,
+        "orchestration": "legacy_maps_planner",
         "request": planner_result.request.to_dict(),
         "recommendation": recommendation.recommended_route.to_dict()
         if recommendation.recommended_route
         else None,
+        "recommended_journey": None,
         "alternatives": [r.to_dict() for r in recommendation.alternatives],
         "explanation": recommendation.explanation,
         "reasons": list(recommendation.reason_codes),
@@ -153,130 +416,155 @@ def serialize_plan_response(
     }
 
 
-def execute_plan(body: PlanRequest) -> Dict[str, Any]:
-    """Run existing plan_commute + optional Gemini explanation."""
-    commute = commute_request_from_plan(body)
-    planner_result = plan_commute(commute)
+def execute_plan(
+    body: PlanRequest,
+    *,
+    repository: Optional[StaticMobilityDataRepository] = None,
+    traffic_get_routes=None,
+) -> Dict[str, Any]:
+    """
+    Primary planning path: ADK Mobility Orchestrator.
 
-    gemini_available = gemini_credentials_available()
-    gemini_invoked = False
-    adk_invoked = False
-    mode = MODE_DETERMINISTIC_FALLBACK
-    explanation = FALLBACK_NOTICE
-    warnings = list(planner_result.warnings)
+    HTTP → plan_commute_with_adk → capabilities → Decision Engine → response.
+    """
+    repo = repository if repository is not None else default_mobility_repository()
+    orch_req = orchestrator_request_from_plan(body)
 
-    if (
-        body.invoke_gemini
-        and gemini_available
-        and adk_importable()
-        and planner_result.error is None
-    ):
-        text, success, err = _invoke_adk_explanation(
-            f"Plan commute from {body.origin} to {body.destination}.",
-            planner_result,
-            user_id=body.user_id,
-        )
-        if success and text:
-            explanation = text
-            gemini_invoked = True
-            adk_invoked = True
-            mode = MODE_ADK_GEMINI
-        else:
-            if err:
-                warnings.append(err)
-            planner_result.warnings = warnings
-
-    payload = serialize_plan_response(
-        planner_result,
-        explanation=explanation,
-        gemini_available=gemini_available,
-        gemini_invoked=gemini_invoked,
-        adk_invoked=adk_invoked,
-        mode=mode,
+    result = plan_commute_with_adk(
+        orch_req,
+        repository=repo,
+        traffic_get_routes=traffic_get_routes,
     )
-    # Keep warnings from explanation path
-    if warnings and payload.get("warnings") is not None:
-        merged = list(dict.fromkeys(list(payload["warnings"]) + warnings))
-        payload["warnings"] = merged
+    payload = serialize_orchestration_response(result)
+    payload["request"] = {
+        "user_id": body.user_id,
+        "origin": body.origin,
+        "destination": body.destination,
+        "departure_time": body.departure_time,
+        "objective": body.objective,
+        "preference_profile": body.preference_profile,
+        "origin_zone": body.origin_zone,
+        "destination_zone": body.destination_zone,
+        "preferences": body.preferences.model_dump() if body.preferences else None,
+    }
+    if result.recommendation.error:
+        payload["ok"] = False
+        payload["error"] = result.recommendation.error
     return payload
 
 
 def execute_replan(body) -> Dict[str, Any]:
-    """Plan (if needed) then run_adaptive_replan."""
+    """Plan via ADK orchestrator, then adaptive replan on the snapshot."""
     from src.api.schemas import ReplanRequest
 
     if not isinstance(body, ReplanRequest):
         raise TypeError("ReplanRequest required")
 
-    commute = commute_request_from_plan(body.request)
-    initial = plan_commute(commute)
     change = context_change_from_body(body.context_change)
+    repo = default_mobility_repository()
 
-    # If initial Maps planning failed, do not fabricate a replan.
-    if initial.error and not initial.routes:
+    orch_req = orchestrator_request_from_plan(
+        body.request,
+        invoke_live_traffic=body.refresh_live_routes,
+    )
+    if not body.refresh_live_routes:
+        orch_req.invoke_live_traffic = False
+
+    orch = plan_commute_with_adk(orch_req, repository=repo)
+    if orch.recommendation.error and not orch.journeys and not orch.route_candidates:
         return {
             "ok": False,
-            "error": initial.error,
-            "error_detail": initial.error_detail,
-            "warnings": list(initial.warnings),
+            "error": orch.recommendation.error,
+            "error_detail": None,
+            "warnings": list(orch.recommendation.warnings),
             "previous_recommendation": None,
             "new_recommendation": None,
             "context_change": change.to_dict(),
             "explanation": FALLBACK_NOTICE,
-            "provenance": _provenance_block(initial),
+            "provenance": _provenance_block_from_orch(orch),
             "gemini": {
                 "available": gemini_credentials_available(),
                 "invoked": False,
                 "adk_invoked": False,
-                "mode": MODE_DETERMINISTIC_FALLBACK,
+                "mode": "deterministic_fallback",
             },
+            "orchestration": "adk_mobility_orchestrator",
         }
 
-    # Default simulated target to current recommendation when omitted.
+    snapshot = snapshot_from_orchestration(orch)
+    # Prefer snapshot request (has preferences) over synthetic defaults.
+    original = commute_request_from_plan(body.request)
+    snapshot.request = original
+    snapshot.planner_result = PlannerResult(
+        request=original,
+        routes=list(snapshot.routes),
+        evaluation=snapshot.evaluation,
+        data_sources=list(snapshot.data_sources),
+        historical_signal_used=bool(orch.recommendation.historical_signal_used),
+        warnings=list(orch.recommendation.warnings),
+    )
+
     if (
         change.context_source == "simulated"
         and change.traffic_changed
         and not change.target_route_id
-        and initial.evaluation
-        and initial.evaluation.recommended_route
+        and snapshot.selected_journey_id
     ):
-        change.target_route_id = initial.evaluation.recommended_route.route_id
+        change.target_route_id = snapshot.selected_journey_id
 
-    replan = run_adaptive_replan(
-        commute,
-        initial,
-        change,
-        user_id=body.request.user_id,
-        invoke_gemini=body.invoke_gemini,
-        refresh_live_routes=body.refresh_live_routes,
+    adaptive_req = AdaptiveReplanRequest(
+        original_request=original,
+        previous_plan=snapshot,
+        context_changes=[change],
+        invoke_gemini=bool(body.invoke_gemini),
+    )
+    replan = run_adaptive_replan_from_snapshot(adaptive_req)
+
+    # Optional Gemini explanation on replan (never changes ranking).
+    if body.invoke_gemini and not replan.gemini_invoked:
+        # Adaptive path is deterministic; surface fallback notice when Gemini off.
+        if not replan.explanation:
+            replan.explanation = FALLBACK_NOTICE
+        replan.gemini_available = gemini_credentials_available()
+        replan.mode = replan.mode or "deterministic_fallback"
+
+    prev_route = next(
+        (r for r in snapshot.routes if r.route_id == snapshot.selected_journey_id),
+        snapshot.routes[0] if snapshot.routes else None,
+    )
+    new_rec = (
+        replan.updated.evaluation.recommended_route
+        if replan.updated.evaluation
+        else None
     )
 
-    prev = recommendation_from_planner(replan.initial, explanation="")
-    new = recommendation_from_planner(replan.updated, explanation=replan.explanation)
-
     return {
-        "ok": replan.updated.error is None,
+        "ok": replan.updated.error is None and replan.error is None,
+        "orchestration": "adk_adaptive_replan",
         "recommendation_changed": replan.recommendation_changed,
         "previous_route_id": replan.previous_route_id,
         "new_route_id": replan.new_route_id,
-        "previous_recommendation": prev.recommended_route.to_dict()
-        if prev.recommended_route
-        else None,
-        "new_recommendation": new.recommended_route.to_dict()
-        if new.recommended_route
-        else None,
+        "decision": replan.decision,
+        "previous_recommendation": prev_route.to_dict() if prev_route else None,
+        "new_recommendation": new_rec.to_dict() if new_rec else None,
         "context_change": replan.context_change.to_dict(),
-        "explanation": replan.explanation,
-        "before": _evaluation_summary(replan.initial),
+        "explanation": replan.explanation or FALLBACK_NOTICE,
+        "before": {
+            "recommended_route_id": snapshot.selected_journey_id,
+            "scores": dict(snapshot.scores),
+        },
         "after": _evaluation_summary(replan.updated),
         "reasons": {
-            "before": list(prev.reason_codes),
-            "after": list(new.reason_codes),
+            "before": [],
+            "after": list(replan.updated.evaluation.reason_codes)
+            if replan.updated.evaluation
+            else [],
         },
         "data_sources": list(replan.updated.data_sources),
         "provenance": {
             **_provenance_block(replan.updated),
             "replan_notes": list(replan.provenance_notes),
+            "context_source": change.context_source,
         },
         "warnings": list(replan.updated.warnings),
         "error": replan.updated.error or replan.error,
@@ -287,6 +575,8 @@ def execute_replan(body) -> Dict[str, Any]:
             "adk_invoked": replan.adk_invoked,
             "mode": replan.mode,
         },
-        "initial_request": replan.initial.request.to_dict(),
+        "initial_request": original.to_dict(),
         "updated_request": replan.updated.request.to_dict(),
+        "plan_id": snapshot.plan_id,
+        "replan_decision_factors": list(replan.decision_factors),
     }

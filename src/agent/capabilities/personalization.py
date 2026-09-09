@@ -66,10 +66,12 @@ def apply_transfer_limit(
         max_walk_transfer_meters=limits.max_walk_transfer_meters,
         max_direct_walk_meters=limits.max_direct_walk_meters,
         max_road_access_meters=limits.max_road_access_meters,
+        max_direct_road_meters=limits.max_direct_road_meters,
         max_transfers=int(personalization.max_transfers),
         max_legs=limits.max_legs,
         max_candidates=limits.max_candidates,
         max_nodes_explored=limits.max_nodes_explored,
         allow_road_access=limits.allow_road_access,
+        allow_direct_road=limits.allow_direct_road,
         road_access_modes=limits.road_access_modes,
     )

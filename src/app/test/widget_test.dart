@@ -123,9 +123,12 @@ void main() {
     );
   });
 
-  test('initialApiBaseUrl falls back to local default when define empty', () {
+  test('initialApiBaseUrl falls back to platform local default when define empty', () {
     if (AppConfig.apiBaseUrlFromDefine.trim().isEmpty) {
-      expect(AppConfig.initialApiBaseUrl, AppConfig.localDevDefaultBaseUrl);
+      expect(
+        AppConfig.initialApiBaseUrl,
+        AppConfig.defaultLocalBaseUrlForPlatform(),
+      );
     } else {
       expect(
         AppConfig.initialApiBaseUrl,
@@ -162,26 +165,26 @@ void main() {
 
   group('OptimizationProfile', () {
     test('Fast / Cheap / Reliable / Easy map to preference weights', () {
-      final fast = OptimizationProfile.fast.toWeights(
+      final fast = OptimizationProfile.fastest.toWeights(
         avoidHeavyTraffic: true,
         maxWalkingMinutes: 20,
       );
       expect(fast.timeWeight, 8);
       expect(fast.costWeight, 1);
 
-      final cheap = OptimizationProfile.cheap.toWeights(
+      final cheap = OptimizationProfile.cheapest.toWeights(
         avoidHeavyTraffic: true,
       );
       expect(cheap.costWeight, 8);
 
-      final reliable = OptimizationProfile.reliable.toWeights(
+      final reliable = OptimizationProfile.moreReliable.toWeights(
         avoidHeavyTraffic: false,
         excludedModes: const ['cab'],
       );
       expect(reliable.reliabilityWeight, 8);
       expect(reliable.excludedModes, ['cab']);
 
-      final easy = OptimizationProfile.easy.toWeights(
+      final easy = OptimizationProfile.lessWalking.toWeights(
         avoidHeavyTraffic: true,
         maxWalkingMinutes: 15,
       );
@@ -253,7 +256,7 @@ void main() {
     test('reason and category labels are user-facing', () {
       expect(reasonLabel('LOW_COST'), 'Lower cost');
       expect(reasonLabel('HIGH_RELIABILITY'), 'More reliable');
-      expect(categoryLabel('FASTEST'), 'Fastest');
+      expect(categoryLabel('FASTEST'), '⚡ Fastest');
       expect(modeLabel('cab'), 'Cab');
     });
   });
@@ -392,7 +395,7 @@ void main() {
 
     test('buildPlanRequestBody includes profile weights and constraints', () {
       final repo = CommuteRepositoryImpl(baseUrl: 'http://example.com');
-      final prefs = OptimizationProfile.cheap.toWeights(
+      final prefs = OptimizationProfile.cheapest.toWeights(
         avoidHeavyTraffic: true,
         maxWalkingMinutes: 20,
         excludedModes: const ['cab'],
@@ -610,39 +613,48 @@ void main() {
       await tester.pumpWidget(_wrap(const PlannerPage()));
       expect(find.text('Commute Agent'), findsOneWidget);
       expect(
-        find.text('Find the route that fits your priorities.'),
+        find.text('Your commute, intelligently composed.'),
         findsOneWidget,
       );
-      expect(find.text('From'), findsWidgets);
-      expect(find.text('To'), findsWidgets);
-      expect(find.text('Fast'), findsOneWidget);
-      expect(find.text('Cheap'), findsOneWidget);
-      expect(find.text('Reliable'), findsOneWidget);
-      expect(find.text('Easy'), findsOneWidget);
-      expect(find.text('Avoid cabs'), findsOneWidget);
-      expect(find.text('PLAN MY COMMUTE'), findsOneWidget);
+      expect(find.text('Where are you heading?'), findsOneWidget);
+      expect(find.text('Origin'), findsWidgets);
+      expect(find.text('Destination'), findsWidgets);
+      expect(find.text('Balanced'), findsOneWidget);
+      expect(find.text('Fastest'), findsOneWidget);
+      expect(find.text('Cheapest'), findsOneWidget);
+      expect(find.text('More reliable'), findsOneWidget);
+      expect(find.text('Less walking'), findsOneWidget);
+      expect(find.text('Lower traffic'), findsOneWidget);
+      expect(find.text('Avoid cab'), findsOneWidget);
+      expect(find.text('Avoid auto'), findsOneWidget);
+      expect(find.text('Plan my commute'), findsOneWidget);
     });
 
     testWidgets('preference chip selection updates selection', (tester) async {
       await tester.pumpWidget(_wrap(const PlannerPage()));
-      await tester.tap(find.text('Cheap'));
+      await tester.tap(find.text('Cheapest'));
       await tester.pump();
       final cheap = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'Cheap'),
+        find.widgetWithText(ChoiceChip, 'Cheapest'),
       );
       expect(cheap.selected, isTrue);
     });
 
-    testWidgets('constraint toggle Avoid cabs works', (tester) async {
+    testWidgets('constraint toggle Avoid cab works', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(400, 1200));
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
       await tester.pumpWidget(_wrap(const PlannerPage()));
+      await tester.ensureVisible(find.byKey(const Key('exclude_cab')));
       final before = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Avoid cabs'),
+        find.byKey(const Key('exclude_cab')),
       );
       expect(before.value, isFalse);
-      await tester.tap(find.text('Avoid cabs'));
+      await tester.tap(find.text('Avoid cab'));
       await tester.pump();
       final after = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Avoid cabs'),
+        find.byKey(const Key('exclude_cab')),
       );
       expect(after.value, isTrue);
     });
@@ -657,10 +669,15 @@ void main() {
       });
       await tester.pumpWidget(_wrap(const PlannerPage(), provider: provider));
 
-      await tester.ensureVisible(find.text('PLAN MY COMMUTE'));
-      await tester.tap(find.text('PLAN MY COMMUTE'));
+      await tester.enterText(find.widgetWithText(TextFormField, 'Origin'), 'A');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Destination'),
+        'B',
+      );
+      await tester.ensureVisible(find.text('Plan my commute'));
+      await tester.tap(find.text('Plan my commute'));
       await tester.pump();
-      expect(find.text('Finding the best route…'), findsOneWidget);
+      expect(find.text('Planning your commute…'), findsOneWidget);
       expect(provider.status, CommuteStatus.loading);
 
       // Fail the plan so we stay on PlannerPage (success would navigate).
@@ -733,7 +750,7 @@ void main() {
     testWidgets('successful plan displays recommendation', (tester) async {
       await pumpResults(tester, seededProvider());
       expect(find.text('BEST FOR YOU'), findsOneWidget);
-      expect(find.text('Cab'), findsWidgets);
+      expect(find.textContaining('Cab'), findsWidgets);
       expect(find.textContaining('33 min'), findsWidgets);
       expect(find.textContaining('₹420'), findsWidgets);
     });
@@ -754,34 +771,39 @@ void main() {
 
     testWidgets('route categories render', (tester) async {
       await pumpResults(tester, seededProvider());
-      expect(find.text('Other options'), findsOneWidget);
-      expect(find.text('CHEAPEST'), findsOneWidget);
-      expect(find.text('Metro'), findsWidgets);
+      expect(find.text('OTHER OPTIONS'), findsOneWidget);
+      expect(find.textContaining('Lower cost'), findsOneWidget);
+      expect(find.textContaining('Metro'), findsWidgets);
     });
 
     testWidgets('why this route uses backend reasons', (tester) async {
       await pumpResults(tester, seededProvider());
-      expect(find.text('Why this route?'), findsOneWidget);
+      expect(find.text('WHY THIS?'), findsOneWidget);
       expect(find.text('Fastest option'), findsOneWidget);
       expect(find.text('Less walking'), findsOneWidget);
     });
 
-    testWidgets('Google polyline reaches map widget', (tester) async {
-      await pumpResults(tester, seededProvider(withPolyline: true));
-      final map = tester.widget<RouteMap>(find.byType(RouteMap));
-      expect(map.encodedPolyline, '_p~iF~ps|U');
+    testWidgets('no embedded map widget is rendered', (tester) async {
+      final provider = seededProvider(withPolyline: true);
+      await pumpResults(tester, provider);
+      expect(find.byType(RouteMap), findsNothing);
+      expect(find.text('BEST FOR YOU'), findsOneWidget);
+      expect(find.byKey(const Key('hero_recommendation')), findsOneWidget);
+      expect(find.byKey(const Key('mode_sequence')), findsOneWidget);
+      expect(provider.plan?.recommendation?.googlePolyline, '_p~iF~ps|U');
+      expect(provider.plan?.recommendation?.googleRouteToken, 'TOKEN_ABC');
     });
 
-    testWidgets('missing polyline shows fallback without crash', (tester) async {
+    testWidgets('missing polyline still shows recommendation without map', (tester) async {
       await pumpResults(tester, seededProvider(withPolyline: false));
-      expect(find.text('Route preview unavailable'), findsOneWidget);
+      expect(find.byType(RouteMap), findsNothing);
       expect(find.text('BEST FOR YOU'), findsOneWidget);
     });
 
     testWidgets('no recommendation empty state', (tester) async {
       await pumpResults(tester, seededProvider(noRecommendation: true));
       expect(
-        find.text('No route matches your current constraints.'),
+        find.text('No suitable journey was found for these preferences.'),
         findsOneWidget,
       );
     });
@@ -904,6 +926,7 @@ void main() {
     });
   });
 }
+
 
 /// Provider that injects a MockClient into CommuteRepositoryImpl.
 class _TestableProvider extends CommuteProvider {

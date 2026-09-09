@@ -34,6 +34,8 @@ from src.historical_signal import (
 
 # Modes that share the same hard-exclusion family (DRIVE adapts to "cab").
 _CAB_FAMILY: Set[str] = {"cab", "taxi", "drive", "rideshare", "uber", "ola"}
+# User-facing "auto" must cover the canonical network token auto_rickshaw.
+_AUTO_FAMILY: Set[str] = {"auto", "auto_rickshaw", "rickshaw", "tuk_tuk", "tuk-tuk"}
 
 # ---------------------------------------------------------------------------
 # Normalization / scoring constants (named — not scattered magic numbers)
@@ -77,6 +79,8 @@ def expand_excluded_mode_tokens(excluded_modes: Optional[List[str]]) -> Set[str]
             continue
         if token in _CAB_FAMILY or token in {"cabs", "taxis"}:
             expanded.update(_CAB_FAMILY)
+        elif token in _AUTO_FAMILY:
+            expanded.update(_AUTO_FAMILY)
         else:
             expanded.add(token)
     return expanded
@@ -117,9 +121,13 @@ def validate_hard_constraints(candidate: RouteCandidate, preferences: UserPrefer
             f"EXCEEDS_MAX_WALKING ({candidate.walking_minutes} min > {preferences.max_walking_minutes} min)"
         )
 
-    if preferences.max_cost is not None and candidate.cost > preferences.max_cost:
-        violations.append(f"EXCEEDS_MAX_COST (INR {candidate.cost} > INR {preferences.max_cost})")
-
+    if preferences.max_cost is not None:
+        # Unknown cost must not be treated as ₹0 against a max_cost cap.
+        if getattr(candidate, "cost_status", "known") == "known":
+            if candidate.cost > preferences.max_cost:
+                violations.append(
+                    f"EXCEEDS_MAX_COST (INR {candidate.cost} > INR {preferences.max_cost})"
+                )
     if preferences.avoid_heavy_traffic and candidate.congestion_score >= 0.7:
         violations.append(
             f"HEAVY_TRAFFIC_AVOIDED (Congestion {candidate.congestion_score:.2f} >= 0.70)"
@@ -217,7 +225,13 @@ def normalize_candidate_pool(candidates: List[RouteCandidate]) -> Dict[str, Dict
         return {}
 
     times = [c.travel_time_minutes for c in candidates]
-    costs = [c.cost for c in candidates]
+    # Unknown cost is NEUTRAL: excluded from cost pool; norm cost = 0 (no penalty).
+    known_costs = [
+        c.cost
+        for c in candidates
+        if getattr(c, "cost_status", "known") == "known"
+    ]
+    costs = known_costs if known_costs else [0.0]
     walkings = [c.walking_minutes for c in candidates]
     transfers = [float(c.transfers) for c in candidates]
     congestions = [c.congestion_score for c in candidates]
@@ -230,9 +244,14 @@ def normalize_candidate_pool(candidates: List[RouteCandidate]) -> Dict[str, Dict
         walk_abs = c.walking_minutes / WALKING_REF_MINUTES if WALKING_REF_MINUTES > 0 else 0.0
         xfer_abs = float(c.transfers) / TRANSFER_REF_COUNT if TRANSFER_REF_COUNT > 0 else 0.0
         eff_rel = effective_reliability(c)
+        if getattr(c, "cost_status", "known") == "known" and known_costs:
+            cost_norm = _min_max_scale(c.cost, known_costs)
+        else:
+            # Neutral mid-scale: not rewarded as free (0), not punished as max.
+            cost_norm = 0.5
         normalized[c.route_id] = {
             "travel_time": _min_max_scale(c.travel_time_minutes, times),
-            "cost": _min_max_scale(c.cost, costs),
+            "cost": cost_norm,
             "walking": _hybrid_norm(c.walking_minutes, walkings, walk_abs),
             "transfers": _hybrid_norm(float(c.transfers), transfers, xfer_abs),
             "congestion": _min_max_scale(c.congestion_score, congestions),
@@ -384,7 +403,12 @@ def generate_reason_codes(
         reasons.append("CONSTRAINT_VIOLATION")
 
     min_time = min(c.travel_time_minutes for c in candidates)
-    min_cost = min(c.cost for c in candidates)
+    known_cost_candidates = [
+        c for c in candidates if getattr(c, "cost_status", "known") == "known"
+    ]
+    min_cost = (
+        min(c.cost for c in known_cost_candidates) if known_cost_candidates else None
+    )
     min_walking = min(c.walking_minutes for c in candidates)
     min_transfers = min(c.transfers for c in candidates)
     min_congestion = min(c.congestion_score for c in candidates)
@@ -393,9 +417,12 @@ def generate_reason_codes(
     if candidate.travel_time_minutes == min_time:
         reasons.append("FASTEST")
 
-    if candidate.cost == min_cost:
+    if (
+        min_cost is not None
+        and getattr(candidate, "cost_status", "known") == "known"
+        and candidate.cost == min_cost
+    ):
         reasons.append("LOW_COST")
-
     if candidate.walking_minutes == min_walking:
         reasons.append("LOW_WALKING")
 
@@ -449,9 +476,17 @@ def build_route_categories(
         valid_ranked,
         key=lambda sr: (sr.route.travel_time_minutes, sr.route.route_id),
     )
+    known_cost = [
+        sr
+        for sr in valid_ranked
+        if getattr(sr.route, "cost_status", "known") == "known"
+    ]
     cheapest = min(
-        valid_ranked,
-        key=lambda sr: (sr.route.cost, sr.route.route_id),
+        known_cost if known_cost else valid_ranked,
+        key=lambda sr: (
+            sr.route.cost if getattr(sr.route, "cost_status", "known") == "known" else float("inf"),
+            sr.route.route_id,
+        ),
     )
     most_reliable = sorted(
         valid_ranked,

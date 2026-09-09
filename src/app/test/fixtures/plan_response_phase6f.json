@@ -1,0 +1,1263 @@
+{
+  "ok": true,
+  "orchestration": "adk_mobility_orchestrator",
+  "request": {
+    "user_id": "api-user",
+    "origin": "Electronic City, Bengaluru",
+    "destination": "Majestic, Bengaluru",
+    "departure_time": null,
+    "objective": null,
+    "preference_profile": "BALANCED",
+    "origin_zone": null,
+    "destination_zone": null,
+    "preferences": null
+  },
+  "recommendation": {
+    "route_id": "j_8ed2506dea77",
+    "mode": "auto_rickshaw",
+    "travel_time_minutes": 0.0,
+    "cost": 315.2,
+    "cost_status": "known",
+    "duration_status": "unknown",
+    "partial_known_cost_inr": 315.2,
+    "walking_minutes": 0.0,
+    "transfers": 0,
+    "congestion_score": 0.35,
+    "reliability_score": 0.55,
+    "disruption_risk": 0.1,
+    "historical_mobility_signal": null,
+    "google_polyline": "_p~iF~ps|U",
+    "google_route_token": "TOKEN_NAV",
+    "distance_meters": 17511,
+    "component_modes": [
+      "auto_rickshaw"
+    ],
+    "mode_signature": "auto",
+    "access_walking_meters": 0,
+    "transfer_walking_meters": 0,
+    "egress_walking_meters": 0
+  },
+  "recommended_journey": {
+    "candidate_id": "j_8ed2506dea77",
+    "origin": [
+      12.8452,
+      77.6602
+    ],
+    "destination": [
+      12.9767,
+      77.5713
+    ],
+    "legs": [
+      {
+        "index": 0,
+        "mode": "auto_rickshaw",
+        "from_node_id": "access:origin",
+        "to_node_id": "access:destination",
+        "edge_id": "road:auto_rickshaw:origin->destination",
+        "edge_kind": "road_direct",
+        "from_ref": null,
+        "to_ref": null,
+        "route_id": null,
+        "provider": null,
+        "distance_meters": 17511.311459356122,
+        "is_transfer": false,
+        "needs_enrichment": true,
+        "estimated_departure": null,
+        "estimated_arrival": null,
+        "waiting_seconds": null,
+        "segment_role": "full_journey_road",
+        "cost_inr": 315.2,
+        "cost_status": "known",
+        "duration_seconds": null,
+        "duration_status": "unknown",
+        "walking_meters": 0.0,
+        "provenance": {
+          "source": "journey_builder_access",
+          "source_type": "internal_derived",
+          "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+          "version": null,
+          "effective_from": null,
+          "effective_at": null,
+          "confidence": null,
+          "quality_notes": null,
+          "source_url": null,
+          "notes": "Full OD road placeholder; geometry/time via enrichment"
+        },
+        "metadata": {
+          "enrichment": "road_geometry_time",
+          "segment_hint": "full_journey_road",
+          "cost_meta": {
+            "fare_kind": "government_regulated_estimate",
+            "rule_id": "bengaluru_auto_regulated_v1",
+            "not_live_aggregator": true,
+            "provenance_source": "bengaluru_rta_auto_fare_regulated",
+            "provenance_source_type": "government_regulated"
+          }
+        }
+      }
+    ],
+    "transfer_count": 0,
+    "walking_distance_meters": 0.0,
+    "access_walking_meters": 0,
+    "transfer_walking_meters": 0,
+    "egress_walking_meters": 0,
+    "transit_leg_count": 0,
+    "road_leg_count": 1,
+    "modes": [
+      "auto_rickshaw"
+    ],
+    "mode_signature": "auto",
+    "snapshot_versions": {
+      "bmrcl": "bmrcl-enriched-20260908",
+      "bmtc": "community-20260908"
+    },
+    "provenance_sources": [
+      "journey_builder_access"
+    ],
+    "enrichment_requirements": [
+      {
+        "requirement_type": "road_geometry_time",
+        "leg_index": 0,
+        "mode": "auto_rickshaw",
+        "from_lat": 12.8452,
+        "from_lon": 77.6602,
+        "to_lat": 12.9767,
+        "to_lon": 77.5713,
+        "notes": "Resolve via live routing layer; not fabricated here."
+      }
+    ],
+    "temporal_feasibility": "unknown",
+    "total_cost_inr": 315.2,
+    "cost_status": "known",
+    "total_duration_seconds": null,
+    "duration_status": "unknown",
+    "warnings": [
+      "TEMPORAL_FEASIBILITY_UNKNOWN (no fabricated schedules)"
+    ]
+  },
+  "alternatives": [
+    {
+      "route_id": "j_325ab4419201",
+      "mode": "cab",
+      "travel_time_minutes": 0.0,
+      "cost": 0.0,
+      "cost_status": "unknown",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": null,
+      "walking_minutes": 0.0,
+      "transfers": 0,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 17511,
+      "component_modes": [
+        "cab"
+      ],
+      "mode_signature": "cab",
+      "access_walking_meters": 0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0
+    },
+    {
+      "route_id": "j_10c6548cd260",
+      "mode": "hybrid",
+      "travel_time_minutes": 87.39,
+      "cost": 0.0,
+      "cost_status": "unknown",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": 36.0,
+      "walking_minutes": 0.41,
+      "transfers": 1,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 21868,
+      "component_modes": [
+        "walk",
+        "bus",
+        "bus",
+        "auto_rickshaw"
+      ],
+      "mode_signature": "walk \u2192 bus \u2192 auto",
+      "access_walking_meters": 33.15,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0.0
+    }
+  ],
+  "journeys": [
+    {
+      "candidate_id": "j_325ab4419201",
+      "origin": [
+        12.8452,
+        77.6602
+      ],
+      "destination": [
+        12.9767,
+        77.5713
+      ],
+      "legs": [
+        {
+          "index": 0,
+          "mode": "cab",
+          "from_node_id": "access:origin",
+          "to_node_id": "access:destination",
+          "edge_id": "road:cab:origin->destination",
+          "edge_kind": "road_direct",
+          "from_ref": null,
+          "to_ref": null,
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 17511.311459356122,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "full_journey_road",
+          "cost_inr": null,
+          "cost_status": "unknown",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Full OD road placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "segment_hint": "full_journey_road",
+            "cost_meta": {
+              "fare_kind": "cab_fare_not_configured",
+              "note": "No live cab-price provider; cost remains unknown (not fabricated)."
+            }
+          }
+        }
+      ],
+      "transfer_count": 0,
+      "walking_distance_meters": 0.0,
+      "access_walking_meters": 0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0,
+      "transit_leg_count": 0,
+      "road_leg_count": 1,
+      "modes": [
+        "cab"
+      ],
+      "mode_signature": "cab",
+      "snapshot_versions": {
+        "bmrcl": "bmrcl-enriched-20260908",
+        "bmtc": "community-20260908"
+      },
+      "provenance_sources": [
+        "journey_builder_access"
+      ],
+      "enrichment_requirements": [
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 0,
+          "mode": "cab",
+          "from_lat": 12.8452,
+          "from_lon": 77.6602,
+          "to_lat": 12.9767,
+          "to_lon": 77.5713,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        }
+      ],
+      "temporal_feasibility": "unknown",
+      "total_cost_inr": null,
+      "cost_status": "unknown",
+      "total_duration_seconds": null,
+      "duration_status": "unknown",
+      "warnings": [
+        "TEMPORAL_FEASIBILITY_UNKNOWN (no fabricated schedules)",
+        "JOURNEY_COST_UNKNOWN (partial or missing fares)"
+      ]
+    },
+    {
+      "candidate_id": "j_8ed2506dea77",
+      "origin": [
+        12.8452,
+        77.6602
+      ],
+      "destination": [
+        12.9767,
+        77.5713
+      ],
+      "legs": [
+        {
+          "index": 0,
+          "mode": "auto_rickshaw",
+          "from_node_id": "access:origin",
+          "to_node_id": "access:destination",
+          "edge_id": "road:auto_rickshaw:origin->destination",
+          "edge_kind": "road_direct",
+          "from_ref": null,
+          "to_ref": null,
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 17511.311459356122,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "full_journey_road",
+          "cost_inr": 315.2,
+          "cost_status": "known",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Full OD road placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "segment_hint": "full_journey_road",
+            "cost_meta": {
+              "fare_kind": "government_regulated_estimate",
+              "rule_id": "bengaluru_auto_regulated_v1",
+              "not_live_aggregator": true,
+              "provenance_source": "bengaluru_rta_auto_fare_regulated",
+              "provenance_source_type": "government_regulated"
+            }
+          }
+        }
+      ],
+      "transfer_count": 0,
+      "walking_distance_meters": 0.0,
+      "access_walking_meters": 0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0,
+      "transit_leg_count": 0,
+      "road_leg_count": 1,
+      "modes": [
+        "auto_rickshaw"
+      ],
+      "mode_signature": "auto",
+      "snapshot_versions": {
+        "bmrcl": "bmrcl-enriched-20260908",
+        "bmtc": "community-20260908"
+      },
+      "provenance_sources": [
+        "journey_builder_access"
+      ],
+      "enrichment_requirements": [
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 0,
+          "mode": "auto_rickshaw",
+          "from_lat": 12.8452,
+          "from_lon": 77.6602,
+          "to_lat": 12.9767,
+          "to_lon": 77.5713,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        }
+      ],
+      "temporal_feasibility": "unknown",
+      "total_cost_inr": 315.2,
+      "cost_status": "known",
+      "total_duration_seconds": null,
+      "duration_status": "unknown",
+      "warnings": [
+        "TEMPORAL_FEASIBILITY_UNKNOWN (no fabricated schedules)"
+      ]
+    },
+    {
+      "candidate_id": "j_4aaa316efd35",
+      "origin": [
+        12.8452,
+        77.6602
+      ],
+      "destination": [
+        12.9767,
+        77.5713
+      ],
+      "legs": [
+        {
+          "index": 0,
+          "mode": "auto_rickshaw",
+          "from_node_id": "access:origin",
+          "to_node_id": "stop:20841",
+          "edge_id": "road:auto_rickshaw:origin->stop:20841",
+          "edge_kind": "road_access",
+          "from_ref": null,
+          "to_ref": "20841",
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 2878.3868966290584,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "access",
+          "cost_inr": 51.81,
+          "cost_status": "known",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Road access placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "cost_meta": {
+              "fare_kind": "government_regulated_estimate",
+              "rule_id": "bengaluru_auto_regulated_v1",
+              "not_live_aggregator": true,
+              "provenance_source": "bengaluru_rta_auto_fare_regulated",
+              "provenance_source_type": "government_regulated"
+            }
+          }
+        },
+        {
+          "index": 1,
+          "mode": "bus",
+          "from_node_id": "stop:20841",
+          "to_node_id": "stop:20922",
+          "edge_id": "bus:3021:20841->21182+stop:39870+stop:20951+stop:20784+stop:39872+stop:20675+stop:21143+stop:20974+stop:21192+stop:20881+stop:21034+stop:20642+stop:21065+stop:20966+stop:22929+stop:23922+stop:20967+stop:22565+stop:20725+stop:35383+stop:20922",
+          "edge_kind": "bus",
+          "from_ref": "20841",
+          "to_ref": "20922",
+          "route_id": "3021",
+          "provider": "BMTC",
+          "distance_meters": 15771.782614920407,
+          "is_transfer": false,
+          "needs_enrichment": false,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "transit",
+          "cost_inr": null,
+          "cost_status": "unknown",
+          "duration_seconds": 3785.227827580897,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "bmtc_gtfs_community_vonter",
+            "source_type": "community_unofficial",
+            "retrieved_at": "2026-09-08T17:44:44.561018+00:00",
+            "version": "20260907",
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": 0.55,
+            "quality_notes": "Unofficial community GTFS; schedules may be incomplete or inaccurate.",
+            "source_url": "https://github.com/Vonter/bmtc-gtfs",
+            "notes": "COMMUNITY / UNOFFICIAL BMTC GTFS (MobilityDatabase mdb-2595; producer Vonter/bmtc-gtfs). Source described by producer as derived from the Namma BMTC app; timetable accuracy may be imperfect. NOT BMTC official GTFS. Feed info dates: start=20260907 end=20270907."
+          },
+          "metadata": {
+            "route_name": "Chowdeshwari Temple \u21d4 Kempegowda Bus Station",
+            "short_name": "361-D KBS-CDH",
+            "cost_meta": {
+              "fare_kind": "transit_fare_not_applied_in_builder"
+            }
+          }
+        },
+        {
+          "index": 2,
+          "mode": "auto_rickshaw",
+          "from_node_id": "stop:20922",
+          "to_node_id": "access:destination",
+          "edge_id": "road:auto_rickshaw:stop:20922->destination",
+          "edge_kind": "road_access",
+          "from_ref": "20922",
+          "to_ref": null,
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 230.82777131599835,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "egress",
+          "cost_inr": 36.0,
+          "cost_status": "known",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Road egress placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "cost_meta": {
+              "fare_kind": "government_regulated_estimate",
+              "rule_id": "bengaluru_auto_regulated_v1",
+              "not_live_aggregator": true,
+              "provenance_source": "bengaluru_rta_auto_fare_regulated",
+              "provenance_source_type": "government_regulated"
+            }
+          }
+        }
+      ],
+      "transfer_count": 0,
+      "walking_distance_meters": 0.0,
+      "access_walking_meters": 0.0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0.0,
+      "transit_leg_count": 1,
+      "road_leg_count": 2,
+      "modes": [
+        "auto_rickshaw",
+        "bus",
+        "auto_rickshaw"
+      ],
+      "mode_signature": "auto \u2192 bus \u2192 auto",
+      "snapshot_versions": {
+        "bmrcl": "bmrcl-enriched-20260908",
+        "bmtc": "community-20260908"
+      },
+      "provenance_sources": [
+        "bmtc_gtfs_community_vonter",
+        "journey_builder_access"
+      ],
+      "enrichment_requirements": [
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 0,
+          "mode": "auto_rickshaw",
+          "from_lat": 12.8452,
+          "from_lon": 77.6602,
+          "to_lat": 12.87008,
+          "to_lon": 77.65287,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        },
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 2,
+          "mode": "auto_rickshaw",
+          "from_lat": 12.97749,
+          "from_lon": 77.57327,
+          "to_lat": 12.9767,
+          "to_lon": 77.5713,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        }
+      ],
+      "temporal_feasibility": "unknown",
+      "total_cost_inr": null,
+      "cost_status": "unknown",
+      "total_duration_seconds": null,
+      "duration_status": "unknown",
+      "warnings": [
+        "TEMPORAL_FEASIBILITY_UNKNOWN (no fabricated schedules)",
+        "JOURNEY_COST_UNKNOWN (partial or missing fares)"
+      ]
+    },
+    {
+      "candidate_id": "j_7eb10af181bd",
+      "origin": [
+        12.8452,
+        77.6602
+      ],
+      "destination": [
+        12.9767,
+        77.5713
+      ],
+      "legs": [
+        {
+          "index": 0,
+          "mode": "auto_rickshaw",
+          "from_node_id": "access:origin",
+          "to_node_id": "stop:20841",
+          "edge_id": "road:auto_rickshaw:origin->stop:20841",
+          "edge_kind": "road_access",
+          "from_ref": null,
+          "to_ref": "20841",
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 2878.3868966290584,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "access",
+          "cost_inr": 51.81,
+          "cost_status": "known",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Road access placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "cost_meta": {
+              "fare_kind": "government_regulated_estimate",
+              "rule_id": "bengaluru_auto_regulated_v1",
+              "not_live_aggregator": true,
+              "provenance_source": "bengaluru_rta_auto_fare_regulated",
+              "provenance_source_type": "government_regulated"
+            }
+          }
+        },
+        {
+          "index": 1,
+          "mode": "bus",
+          "from_node_id": "stop:20841",
+          "to_node_id": "stop:20922",
+          "edge_id": "bus:4925:20841->21182+stop:39870+stop:20951+stop:20784+stop:39872+stop:20675+stop:21143+stop:20974+stop:21192+stop:20881+stop:21034+stop:20642+stop:21065+stop:20966+stop:22929+stop:23922+stop:20967+stop:20986+stop:21557+stop:22199+stop:21231+stop:20725+stop:35383+stop:20922",
+          "edge_kind": "bus",
+          "from_ref": "20841",
+          "to_ref": "20922",
+          "route_id": "4925",
+          "provider": "BMTC",
+          "distance_meters": 17531.063919523833,
+          "is_transfer": false,
+          "needs_enrichment": false,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "transit",
+          "cost_inr": null,
+          "cost_status": "unknown",
+          "duration_seconds": 4207.455340685719,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "bmtc_gtfs_community_vonter",
+            "source_type": "community_unofficial",
+            "retrieved_at": "2026-09-08T17:44:44.561018+00:00",
+            "version": "20260907",
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": 0.55,
+            "quality_notes": "Unofficial community GTFS; schedules may be incomplete or inaccurate.",
+            "source_url": "https://github.com/Vonter/bmtc-gtfs",
+            "notes": "COMMUNITY / UNOFFICIAL BMTC GTFS (MobilityDatabase mdb-2595; producer Vonter/bmtc-gtfs). Source described by producer as derived from the Namma BMTC app; timetable accuracy may be imperfect. NOT BMTC official GTFS. Feed info dates: start=20260907 end=20270907."
+          },
+          "metadata": {
+            "route_name": "Mahadeshwara Badavane \u21d4 Kempegowda Bus Station",
+            "short_name": "352-E KBS-KMT-MHDB",
+            "cost_meta": {
+              "fare_kind": "transit_fare_not_applied_in_builder"
+            }
+          }
+        },
+        {
+          "index": 2,
+          "mode": "cab",
+          "from_node_id": "stop:20922",
+          "to_node_id": "access:destination",
+          "edge_id": "road:cab:stop:20922->destination",
+          "edge_kind": "road_access",
+          "from_ref": "20922",
+          "to_ref": null,
+          "route_id": null,
+          "provider": null,
+          "distance_meters": 230.82777131599835,
+          "is_transfer": false,
+          "needs_enrichment": true,
+          "estimated_departure": null,
+          "estimated_arrival": null,
+          "waiting_seconds": null,
+          "segment_role": "egress",
+          "cost_inr": null,
+          "cost_status": "unknown",
+          "duration_seconds": null,
+          "duration_status": "unknown",
+          "walking_meters": 0.0,
+          "provenance": {
+            "source": "journey_builder_access",
+            "source_type": "internal_derived",
+            "retrieved_at": "2026-09-09T05:06:12.476298+00:00",
+            "version": null,
+            "effective_from": null,
+            "effective_at": null,
+            "confidence": null,
+            "quality_notes": null,
+            "source_url": null,
+            "notes": "Road egress placeholder; geometry/time via enrichment"
+          },
+          "metadata": {
+            "enrichment": "road_geometry_time",
+            "cost_meta": {
+              "fare_kind": "cab_fare_not_configured",
+              "note": "No live cab-price provider; cost remains unknown (not fabricated)."
+            }
+          }
+        }
+      ],
+      "transfer_count": 0,
+      "walking_distance_meters": 0.0,
+      "access_walking_meters": 0.0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0.0,
+      "transit_leg_count": 1,
+      "road_leg_count": 2,
+      "modes": [
+        "auto_rickshaw",
+        "bus",
+        "cab"
+      ],
+      "mode_signature": "auto \u2192 bus \u2192 cab",
+      "snapshot_versions": {
+        "bmrcl": "bmrcl-enriched-20260908",
+        "bmtc": "community-20260908"
+      },
+      "provenance_sources": [
+        "bmtc_gtfs_community_vonter",
+        "journey_builder_access"
+      ],
+      "enrichment_requirements": [
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 0,
+          "mode": "auto_rickshaw",
+          "from_lat": 12.8452,
+          "from_lon": 77.6602,
+          "to_lat": 12.87008,
+          "to_lon": 77.65287,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        },
+        {
+          "requirement_type": "road_geometry_time",
+          "leg_index": 2,
+          "mode": "cab",
+          "from_lat": 12.97749,
+          "from_lon": 77.57327,
+          "to_lat": 12.9767,
+          "to_lon": 77.5713,
+          "notes": "Resolve via live routing layer; not fabricated here."
+        }
+      ],
+      "temporal_feasibility": "unknown",
+      "total_cost_inr": null,
+      "cost_status": "unknown",
+      "total_duration_seconds": null,
+      "duration_status": "unknown",
+      "warnings": [
+        "TEMPORAL_FEASIBILITY_UNKNOWN (no fabricated schedules)",
+        "JOURNEY_COST_UNKNOWN (partial or missing fares)"
+      ]
+    }
+  ],
+  "explanation": "Deterministic Decision Engine selected journey j_8ed2506dea77 (score=100.0) as BEST_OVERALL. Candidates considered: 20. Gemini unavailable \u2014 deterministic fallback",
+  "reasons": [
+    "FASTEST",
+    "LOW_COST",
+    "LOW_WALKING",
+    "FEWER_TRANSFERS",
+    "LOW_CONGESTION"
+  ],
+  "evaluation": {
+    "score": 100.0,
+    "reason_codes": [
+      "FASTEST",
+      "LOW_COST",
+      "LOW_WALKING",
+      "FEWER_TRANSFERS",
+      "LOW_CONGESTION"
+    ],
+    "recommended_route_id": "j_8ed2506dea77",
+    "route_categories": [
+      {
+        "category": "BEST_OVERALL",
+        "route_id": "j_8ed2506dea77"
+      },
+      {
+        "category": "FASTEST",
+        "route_id": "j_325ab4419201"
+      },
+      {
+        "category": "CHEAPEST",
+        "route_id": "j_8ed2506dea77"
+      },
+      {
+        "category": "MOST_RELIABLE",
+        "route_id": "j_10c6548cd260"
+      }
+    ],
+    "ranked": [
+      {
+        "route_id": "j_8ed2506dea77",
+        "final_score": 100.0,
+        "is_valid": true,
+        "reason_codes": [
+          "FASTEST",
+          "LOW_COST",
+          "LOW_WALKING",
+          "FEWER_TRANSFERS",
+          "LOW_CONGESTION"
+        ],
+        "cost_status": "known",
+        "duration_status": "unknown",
+        "mode_signature": "auto"
+      },
+      {
+        "route_id": "j_325ab4419201",
+        "final_score": 93.33333333333333,
+        "is_valid": true,
+        "reason_codes": [
+          "FASTEST",
+          "LOW_WALKING",
+          "FEWER_TRANSFERS",
+          "LOW_CONGESTION"
+        ],
+        "cost_status": "unknown",
+        "duration_status": "unknown",
+        "mode_signature": "cab"
+      },
+      {
+        "route_id": "j_4aaa316efd35",
+        "final_score": 88.21156031823348,
+        "is_valid": true,
+        "reason_codes": [
+          "LOW_WALKING",
+          "FEWER_TRANSFERS",
+          "LOW_CONGESTION"
+        ],
+        "cost_status": "unknown",
+        "duration_status": "unknown",
+        "mode_signature": "auto \u2192 bus \u2192 auto"
+      }
+    ]
+  },
+  "decision": {
+    "ranked_route_ids": [
+      "j_8ed2506dea77",
+      "j_325ab4419201",
+      "j_4aaa316efd35",
+      "j_712233b8134d",
+      "j_7eb10af181bd",
+      "j_905bf53630b7",
+      "j_5aaacc535c75",
+      "j_d59959d93651",
+      "j_4cdd097bbaea",
+      "j_2fde80fc90e8",
+      "j_88abfb562665",
+      "j_f05b46321624",
+      "j_61d53c30212a",
+      "j_85ca4f1ff3de",
+      "j_ad544ee10726",
+      "j_575cb1a753f1",
+      "j_b54ab68e6b37",
+      "j_10c6548cd260",
+      "j_25aa6d750478",
+      "j_438ce8a94f7d"
+    ],
+    "recommended_route_id": "j_8ed2506dea77",
+    "category_assignments": {
+      "BEST_OVERALL": "j_8ed2506dea77",
+      "FASTEST": "j_325ab4419201",
+      "CHEAPEST": "j_8ed2506dea77",
+      "MOST_RELIABLE": "j_10c6548cd260"
+    },
+    "scores": {
+      "j_8ed2506dea77": 100.0,
+      "j_325ab4419201": 93.33333333333333,
+      "j_4aaa316efd35": 88.21156031823348,
+      "j_712233b8134d": 87.6408507874655,
+      "j_7eb10af181bd": 87.6408507874655,
+      "j_905bf53630b7": 86.65773664555934,
+      "j_5aaacc535c75": 85.61637955443646,
+      "j_d59959d93651": 85.61637955443646,
+      "j_4cdd097bbaea": 83.80947280787132,
+      "j_2fde80fc90e8": 83.23795145700267,
+      "j_88abfb562665": 83.18390063440266,
+      "j_f05b46321624": 82.61237928353401,
+      "j_61d53c30212a": 82.25483731509652,
+      "j_85ca4f1ff3de": 81.19770430879804,
+      "j_ad544ee10726": 81.19770430879804,
+      "j_575cb1a753f1": 80.58871987060564,
+      "j_b54ab68e6b37": 76.77821724305895,
+      "j_10c6548cd260": 75.5587403272892,
+      "j_25aa6d750478": 75.5587403272892,
+      "j_438ce8a94f7d": 67.57819064966606
+    },
+    "reason_codes": [
+      "FASTEST",
+      "LOW_COST",
+      "LOW_WALKING",
+      "FEWER_TRANSFERS",
+      "LOW_CONGESTION"
+    ],
+    "authoritative": true
+  },
+  "data_sources": [
+    "journey_builder",
+    "decision_engine"
+  ],
+  "provenance": {
+    "data_sources": [
+      "decision_engine",
+      "journey_builder",
+      "mobility_network_snapshots"
+    ],
+    "historical_signal_used": false,
+    "network_snapshot_versions": {
+      "bmrcl": "bmrcl-enriched-20260908",
+      "bmtc": "community-20260908"
+    },
+    "capabilities": [
+      {
+        "name": "personalization",
+        "status": "invoked",
+        "reason": "resolve request constraints",
+        "detail": {
+          "source": "request"
+        }
+      },
+      {
+        "name": "geocode",
+        "status": "invoked",
+        "reason": "resolve origin/destination coordinates",
+        "detail": {
+          "origin": "explicit",
+          "destination": "explicit"
+        }
+      },
+      {
+        "name": "mobility_network",
+        "status": "invoked",
+        "reason": "query Phase 5A/5B repository",
+        "detail": {
+          "stops": 8,
+          "stations": 0
+        }
+      },
+      {
+        "name": "journey_builder",
+        "status": "invoked",
+        "reason": "DynamicJourneyBuilder graph search",
+        "detail": {
+          "candidates": 20,
+          "warnings": []
+        }
+      },
+      {
+        "name": "traffic_enrichment",
+        "status": "skipped",
+        "reason": "disabled or no candidates",
+        "detail": {}
+      },
+      {
+        "name": "historical_mobility",
+        "status": "skipped",
+        "reason": "disabled by request",
+        "detail": {}
+      },
+      {
+        "name": "weather_context",
+        "status": "skipped",
+        "reason": "disabled by request",
+        "detail": {}
+      },
+      {
+        "name": "decision_engine",
+        "status": "invoked",
+        "reason": "deterministic ranking of journey candidates",
+        "detail": {
+          "recommended": "j_8ed2506dea77"
+        }
+      },
+      {
+        "name": "gemini_explanation",
+        "status": "skipped",
+        "reason": "gemini unavailable or not requested",
+        "detail": {}
+      }
+    ],
+    "field_policy": {
+      "DRIVE": {
+        "travel_time_minutes": "live",
+        "distance_meters": "live",
+        "has_traffic_data": "live",
+        "google_polyline": "live",
+        "google_route_token": "live",
+        "congestion_score": "heuristic",
+        "reliability_score": "heuristic",
+        "disruption_risk": "heuristic",
+        "cost": "heuristic",
+        "walking_minutes": "n/a",
+        "transfers": "n/a",
+        "data_source": "google_maps_routes"
+      },
+      "TRANSIT": {
+        "travel_time_minutes": "live",
+        "distance_meters": "live",
+        "walking_minutes": "live",
+        "transfers": "live",
+        "transit_legs": "live",
+        "google_polyline": "live",
+        "google_route_token": "live",
+        "congestion_score": "heuristic",
+        "reliability_score": "heuristic",
+        "disruption_risk": "heuristic",
+        "cost": "heuristic",
+        "data_source": "google_maps_routes"
+      },
+      "WALK": {
+        "travel_time_minutes": "live",
+        "distance_meters": "live",
+        "walking_minutes": "live",
+        "google_polyline": "live",
+        "google_route_token": "live",
+        "cost": "heuristic",
+        "congestion_score": "heuristic",
+        "reliability_score": "heuristic",
+        "disruption_risk": "heuristic",
+        "transfers": "n/a",
+        "data_source": "google_maps_routes"
+      }
+    },
+    "notes": [
+      "orchestration = ADK MobilityOrchestrator",
+      "decision = Decision Engine (authoritative)",
+      "gemini = explanation only"
+    ]
+  },
+  "historical_context": null,
+  "historical_signal_used": false,
+  "weather_context": null,
+  "warnings": [],
+  "error": null,
+  "error_detail": null,
+  "gemini": {
+    "available": false,
+    "invoked": false,
+    "adk_invoked": false,
+    "mode": "deterministic_fallback"
+  },
+  "metadata": {
+    "capabilities": [
+      {
+        "name": "personalization",
+        "status": "invoked",
+        "reason": "resolve request constraints",
+        "detail": {
+          "source": "request"
+        }
+      },
+      {
+        "name": "geocode",
+        "status": "invoked",
+        "reason": "resolve origin/destination coordinates",
+        "detail": {
+          "origin": "explicit",
+          "destination": "explicit"
+        }
+      },
+      {
+        "name": "mobility_network",
+        "status": "invoked",
+        "reason": "query Phase 5A/5B repository",
+        "detail": {
+          "stops": 8,
+          "stations": 0
+        }
+      },
+      {
+        "name": "journey_builder",
+        "status": "invoked",
+        "reason": "DynamicJourneyBuilder graph search",
+        "detail": {
+          "candidates": 20,
+          "warnings": []
+        }
+      },
+      {
+        "name": "traffic_enrichment",
+        "status": "skipped",
+        "reason": "disabled or no candidates",
+        "detail": {}
+      },
+      {
+        "name": "historical_mobility",
+        "status": "skipped",
+        "reason": "disabled by request",
+        "detail": {}
+      },
+      {
+        "name": "weather_context",
+        "status": "skipped",
+        "reason": "disabled by request",
+        "detail": {}
+      },
+      {
+        "name": "decision_engine",
+        "status": "invoked",
+        "reason": "deterministic ranking of journey candidates",
+        "detail": {
+          "recommended": "j_8ed2506dea77"
+        }
+      },
+      {
+        "name": "gemini_explanation",
+        "status": "skipped",
+        "reason": "gemini unavailable or not requested",
+        "detail": {}
+      }
+    ],
+    "network_snapshot_versions": {
+      "bmrcl": "bmrcl-enriched-20260908",
+      "bmtc": "community-20260908"
+    },
+    "journey_candidate_count": 20,
+    "enrichment_count": 0,
+    "decision_engine_invoked": true,
+    "gemini_available": false,
+    "gemini_invoked": false,
+    "explanation_mode": "deterministic_fallback",
+    "fallbacks": [],
+    "warnings": []
+  },
+  "candidate_count": 20,
+  "routes": [
+    {
+      "route_id": "j_325ab4419201",
+      "mode": "cab",
+      "travel_time_minutes": 0.0,
+      "cost": 0.0,
+      "cost_status": "unknown",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": null,
+      "walking_minutes": 0.0,
+      "transfers": 0,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 17511,
+      "component_modes": [
+        "cab"
+      ],
+      "mode_signature": "cab",
+      "access_walking_meters": 0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0
+    },
+    {
+      "route_id": "j_8ed2506dea77",
+      "mode": "auto_rickshaw",
+      "travel_time_minutes": 0.0,
+      "cost": 315.2,
+      "cost_status": "known",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": 315.2,
+      "walking_minutes": 0.0,
+      "transfers": 0,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 17511,
+      "component_modes": [
+        "auto_rickshaw"
+      ],
+      "mode_signature": "auto",
+      "access_walking_meters": 0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0
+    },
+    {
+      "route_id": "j_4aaa316efd35",
+      "mode": "hybrid",
+      "travel_time_minutes": 63.09,
+      "cost": 0.0,
+      "cost_status": "unknown",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": 87.81,
+      "walking_minutes": 0.0,
+      "transfers": 0,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 18880,
+      "component_modes": [
+        "auto_rickshaw",
+        "bus",
+        "auto_rickshaw"
+      ],
+      "mode_signature": "auto \u2192 bus \u2192 auto",
+      "access_walking_meters": 0.0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0.0
+    },
+    {
+      "route_id": "j_7eb10af181bd",
+      "mode": "hybrid",
+      "travel_time_minutes": 70.12,
+      "cost": 0.0,
+      "cost_status": "unknown",
+      "duration_status": "unknown",
+      "partial_known_cost_inr": 51.81,
+      "walking_minutes": 0.0,
+      "transfers": 0,
+      "congestion_score": 0.35,
+      "reliability_score": 0.55,
+      "disruption_risk": 0.1,
+      "historical_mobility_signal": null,
+      "google_polyline": null,
+      "google_route_token": null,
+      "distance_meters": 20640,
+      "component_modes": [
+        "auto_rickshaw",
+        "bus",
+        "cab"
+      ],
+      "mode_signature": "auto \u2192 bus \u2192 cab",
+      "access_walking_meters": 0.0,
+      "transfer_walking_meters": 0,
+      "egress_walking_meters": 0.0
+    }
+  ]
+}

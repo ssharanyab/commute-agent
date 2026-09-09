@@ -337,6 +337,10 @@ class MobilityOrchestrator:
                         results = []
                     enrichment_results[journey.candidate_id] = results
                     meta.enrichment_count += sum(1 for r in results if r.available)
+                # Write enrichment back onto journeys (per-leg); re-aggregate.
+                from src.agent.capabilities.enrichment_apply import apply_enrichments
+
+                journeys = apply_enrichments(journeys, enrichment_results)
                 meta.record(
                     "traffic_enrichment",
                     "invoked",

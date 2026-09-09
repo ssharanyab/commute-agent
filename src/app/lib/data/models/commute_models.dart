@@ -1,10 +1,14 @@
 import '../../domain/entities/commute_plan.dart';
 import '../../domain/entities/commute_route.dart';
 import '../../domain/entities/context_change.dart';
+import '../../domain/entities/decision_summary.dart';
 import '../../domain/entities/gemini_meta.dart';
 import '../../domain/entities/historical_signal.dart';
+import '../../domain/entities/journey.dart';
+import '../../domain/entities/journey_leg.dart';
 import '../../domain/entities/replan_result.dart';
 import '../../domain/entities/route_category.dart';
+import '../../domain/entities/value_status.dart';
 
 class GeminiMetaModel {
   final bool available;
@@ -37,11 +41,21 @@ class GeminiMetaModel {
   }
 
   GeminiMeta toEntity() => GeminiMeta(
-    available: available,
-    invoked: invoked,
-    adkInvoked: adkInvoked,
-    mode: mode,
-  );
+        available: available,
+        invoked: invoked,
+        adkInvoked: adkInvoked,
+        mode: mode,
+      );
+}
+
+List<String> _stringList(dynamic raw) {
+  if (raw is! List) return const [];
+  return raw.map((e) => '$e').toList();
+}
+
+Map<String, dynamic>? _asStringKeyedMap(dynamic raw) {
+  if (raw is! Map) return null;
+  return Map<String, dynamic>.from(raw);
 }
 
 class RouteModel {
@@ -49,30 +63,48 @@ class RouteModel {
   final String mode;
   final double travelTimeMinutes;
   final double cost;
+  final ValueStatus costStatus;
+  final ValueStatus durationStatus;
+  final double? partialKnownCostInr;
   final double walkingMinutes;
   final int transfers;
   final double congestionScore;
   final double reliabilityScore;
+  final double disruptionRisk;
   final double? distanceKm;
   final int? distanceMeters;
   final String? googlePolyline;
   final String? googleRouteToken;
   final HistoricalSignal? historicalSignal;
+  final List<String> componentModes;
+  final String modeSignature;
+  final double? accessWalkingMeters;
+  final double? transferWalkingMeters;
+  final double? egressWalkingMeters;
 
   const RouteModel({
     required this.routeId,
     required this.mode,
     required this.travelTimeMinutes,
     required this.cost,
+    this.costStatus = ValueStatus.known,
+    this.durationStatus = ValueStatus.known,
+    this.partialKnownCostInr,
     required this.walkingMinutes,
     required this.transfers,
     required this.congestionScore,
     required this.reliabilityScore,
+    this.disruptionRisk = 0,
     this.distanceKm,
     this.distanceMeters,
     this.googlePolyline,
     this.googleRouteToken,
     this.historicalSignal,
+    this.componentModes = const [],
+    this.modeSignature = '',
+    this.accessWalkingMeters,
+    this.transferWalkingMeters,
+    this.egressWalkingMeters,
   });
 
   factory RouteModel.fromJson(
@@ -81,15 +113,27 @@ class RouteModel {
   }) {
     final meters = (json['distance_meters'] as num?)?.toInt();
     final distanceKm = meters != null ? meters / 1000.0 : distanceKmFallback;
+    final components = _stringList(json['component_modes']);
     return RouteModel(
       routeId: (json['route_id'] as String?) ?? 'unknown',
       mode: (json['mode'] as String?) ?? 'unknown',
       travelTimeMinutes: (json['travel_time_minutes'] as num?)?.toDouble() ?? 0,
       cost: (json['cost'] as num?)?.toDouble() ?? 0,
+      costStatus: ValueStatus.fromWire(
+        json['cost_status'] as String?,
+        whenMissing: ValueStatus.known,
+      ),
+      durationStatus: ValueStatus.fromWire(
+        json['duration_status'] as String?,
+        whenMissing: ValueStatus.known,
+      ),
+      partialKnownCostInr:
+          (json['partial_known_cost_inr'] as num?)?.toDouble(),
       walkingMinutes: (json['walking_minutes'] as num?)?.toDouble() ?? 0,
       transfers: (json['transfers'] as num?)?.toInt() ?? 0,
       congestionScore: (json['congestion_score'] as num?)?.toDouble() ?? 0,
       reliabilityScore: (json['reliability_score'] as num?)?.toDouble() ?? 0,
+      disruptionRisk: (json['disruption_risk'] as num?)?.toDouble() ?? 0,
       distanceKm: distanceKm,
       distanceMeters: meters,
       googlePolyline: (json['google_polyline'] as String?) ??
@@ -99,6 +143,14 @@ class RouteModel {
       historicalSignal: _parseHistorical(
         json['historical_mobility_signal'] ?? json['historicalMobilitySignal'],
       ),
+      componentModes: components,
+      modeSignature: (json['mode_signature'] as String?) ?? '',
+      accessWalkingMeters:
+          (json['access_walking_meters'] as num?)?.toDouble(),
+      transferWalkingMeters:
+          (json['transfer_walking_meters'] as num?)?.toDouble(),
+      egressWalkingMeters:
+          (json['egress_walking_meters'] as num?)?.toDouble(),
     );
   }
 
@@ -107,15 +159,24 @@ class RouteModel {
         mode: mode,
         travelTimeMinutes: travelTimeMinutes,
         cost: cost,
+        costStatus: costStatus,
+        durationStatus: durationStatus,
+        partialKnownCostInr: partialKnownCostInr,
         walkingMinutes: walkingMinutes,
         transfers: transfers,
         congestionScore: congestionScore,
         reliabilityScore: reliabilityScore,
+        disruptionRisk: disruptionRisk,
         distanceKm: distanceKm,
         distanceMeters: distanceMeters,
         googlePolyline: googlePolyline,
         googleRouteToken: googleRouteToken,
         historicalSignal: historicalSignal,
+        componentModes: componentModes,
+        modeSignature: modeSignature,
+        accessWalkingMeters: accessWalkingMeters,
+        transferWalkingMeters: transferWalkingMeters,
+        egressWalkingMeters: egressWalkingMeters,
       );
 }
 
@@ -162,14 +223,215 @@ double? distanceKmForRouteId(String? routeId, List<dynamic>? mapsRoutes) {
   return null;
 }
 
+class JourneyLegModel {
+  final JourneyLeg entity;
+
+  JourneyLegModel(this.entity);
+
+  factory JourneyLegModel.fromJson(Map<String, dynamic> json) {
+    final metadata = _asStringKeyedMap(json['metadata']) ?? const {};
+    final polyline = (json['google_polyline'] as String?) ??
+        metadata['google_polyline'] as String? ??
+        metadata['polyline'] as String?;
+    final token = (json['google_route_token'] as String?) ??
+        metadata['google_route_token'] as String? ??
+        metadata['route_token'] as String?;
+    return JourneyLegModel(
+      JourneyLeg(
+        index: (json['index'] as num?)?.toInt() ?? 0,
+        mode: (json['mode'] as String?) ?? 'unknown',
+        fromNodeId: (json['from_node_id'] as String?) ?? '',
+        toNodeId: (json['to_node_id'] as String?) ?? '',
+        edgeId: (json['edge_id'] as String?) ?? '',
+        edgeKind: (json['edge_kind'] as String?) ?? '',
+        fromRef: json['from_ref'] as String?,
+        toRef: json['to_ref'] as String?,
+        routeId: json['route_id'] as String?,
+        provider: json['provider'] as String?,
+        distanceMeters: (json['distance_meters'] as num?)?.toDouble(),
+        isTransfer: json['is_transfer'] == true,
+        needsEnrichment: json['needs_enrichment'] == true,
+        estimatedDeparture: json['estimated_departure'] as String?,
+        estimatedArrival: json['estimated_arrival'] as String?,
+        waitingSeconds: (json['waiting_seconds'] as num?)?.toInt(),
+        segmentRole: (json['segment_role'] as String?) ?? 'other',
+        costInr: (json['cost_inr'] as num?)?.toDouble(),
+        costStatus: ValueStatus.fromWire(json['cost_status'] as String?),
+        durationSeconds: (json['duration_seconds'] as num?)?.toDouble(),
+        durationStatus:
+            ValueStatus.fromWire(json['duration_status'] as String?),
+        walkingMeters: (json['walking_meters'] as num?)?.toDouble() ?? 0,
+        provenance: _asStringKeyedMap(json['provenance']),
+        metadata: metadata,
+        googlePolyline: polyline,
+        googleRouteToken: token,
+      ),
+    );
+  }
+}
+
+class JourneyModel {
+  final RecommendedJourney entity;
+
+  JourneyModel(this.entity);
+
+  factory JourneyModel.fromJson(Map<String, dynamic> json) {
+    final legsRaw = json['legs'];
+    final legs = <JourneyLeg>[];
+    if (legsRaw is List) {
+      for (final raw in legsRaw) {
+        if (raw is! Map) continue;
+        legs.add(
+          JourneyLegModel.fromJson(Map<String, dynamic>.from(raw)).entity,
+        );
+      }
+    }
+    List<double>? latLon(dynamic raw) {
+      if (raw is! List || raw.length < 2) return null;
+      final a = (raw[0] as num?)?.toDouble();
+      final b = (raw[1] as num?)?.toDouble();
+      if (a == null || b == null) return null;
+      return [a, b];
+    }
+
+    final snaps = <String, String>{};
+    final snapRaw = json['snapshot_versions'];
+    if (snapRaw is Map) {
+      snapRaw.forEach((k, v) => snaps['$k'] = '$v');
+    }
+
+    return JourneyModel(
+      RecommendedJourney(
+        candidateId: (json['candidate_id'] as String?) ?? '',
+        originLatLon: latLon(json['origin']),
+        destinationLatLon: latLon(json['destination']),
+        legs: legs,
+        modes: _stringList(json['modes']),
+        modeSignature: (json['mode_signature'] as String?) ?? '',
+        costStatus: ValueStatus.fromWire(json['cost_status'] as String?),
+        durationStatus:
+            ValueStatus.fromWire(json['duration_status'] as String?),
+        totalCostInr: (json['total_cost_inr'] as num?)?.toDouble(),
+        totalDurationSeconds:
+            (json['total_duration_seconds'] as num?)?.toDouble(),
+        transferCount: (json['transfer_count'] as num?)?.toInt() ?? 0,
+        walkingDistanceMeters:
+            (json['walking_distance_meters'] as num?)?.toDouble() ?? 0,
+        transitLegCount: (json['transit_leg_count'] as num?)?.toInt() ?? 0,
+        roadLegCount: (json['road_leg_count'] as num?)?.toInt() ?? 0,
+        snapshotVersions: snaps,
+        provenanceSources: _stringList(json['provenance_sources']),
+        temporalFeasibility:
+            (json['temporal_feasibility'] as String?) ?? 'unknown',
+        warnings: _stringList(json['warnings']),
+        accessWalkingMeters:
+            (json['access_walking_meters'] as num?)?.toDouble(),
+        transferWalkingMeters:
+            (json['transfer_walking_meters'] as num?)?.toDouble(),
+        egressWalkingMeters:
+            (json['egress_walking_meters'] as num?)?.toDouble(),
+      ),
+    );
+  }
+}
+
+class DecisionModel {
+  final DecisionSummary entity;
+
+  DecisionModel(this.entity);
+
+  factory DecisionModel.fromJson(Map<String, dynamic> json) {
+    final scores = <String, double>{};
+    final scoresRaw = json['scores'];
+    if (scoresRaw is Map) {
+      scoresRaw.forEach((k, v) {
+        final n = (v as num?)?.toDouble();
+        if (n != null) scores['$k'] = n;
+      });
+    }
+    final cats = <String, String>{};
+    final catsRaw = json['category_assignments'];
+    if (catsRaw is Map) {
+      catsRaw.forEach((k, v) => cats['$k'] = '$v');
+    }
+    return DecisionModel(
+      DecisionSummary(
+        recommendedRouteId: json['recommended_route_id'] as String?,
+        rankedRouteIds: _stringList(json['ranked_route_ids']),
+        categoryAssignments: cats,
+        scores: scores,
+        reasonCodes: _stringList(json['reason_codes']),
+        authoritative: json['authoritative'] != false,
+      ),
+    );
+  }
+}
+
+class EvaluationModel {
+  final EvaluationSummary entity;
+
+  EvaluationModel(this.entity);
+
+  factory EvaluationModel.fromJson(Map<String, dynamic> json) {
+    final ranked = <RankedEvaluationEntry>[];
+    final rankedRaw = json['ranked'];
+    if (rankedRaw is List) {
+      for (final raw in rankedRaw) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        ranked.add(
+          RankedEvaluationEntry(
+            routeId: (m['route_id'] as String?) ?? '',
+            finalScore: (m['final_score'] as num?)?.toDouble() ?? 0,
+            isValid: m['is_valid'] != false,
+            reasonCodes: _stringList(m['reason_codes']),
+            costStatus: m['cost_status'] as String?,
+            durationStatus: m['duration_status'] as String?,
+            modeSignature: m['mode_signature'] as String?,
+          ),
+        );
+      }
+    }
+    final cats = <({String category, String routeId})>[];
+    final catsRaw = json['route_categories'];
+    if (catsRaw is List) {
+      for (final c in catsRaw) {
+        if (c is! Map) continue;
+        final cat = c['category'] as String?;
+        final id = c['route_id'] as String?;
+        if (cat == null || id == null) continue;
+        cats.add((category: cat, routeId: id));
+      }
+    }
+    return EvaluationModel(
+      EvaluationSummary(
+        score: (json['score'] as num?)?.toDouble(),
+        reasonCodes: _stringList(json['reason_codes']),
+        recommendedRouteId: json['recommended_route_id'] as String?,
+        ranked: ranked,
+        routeCategories: cats,
+      ),
+    );
+  }
+}
+
 class PlanResponseModel {
   final bool ok;
+  final String? orchestration;
   final RouteModel? recommendation;
+  final JourneyModel? recommendedJourney;
   final List<RouteModel> alternatives;
+  final List<JourneyModel> journeys;
+  final DecisionModel? decision;
+  final EvaluationModel? evaluation;
   final String explanation;
   final List<String> reasons;
   final List<String> dataSources;
   final Map<String, dynamic>? provenance;
+  final Map<String, dynamic>? historicalContext;
+  final Map<String, dynamic>? weatherContext;
+  final Map<String, dynamic>? metadata;
+  final int? candidateCount;
   final List<String> warnings;
   final String? error;
   final String? errorDetail;
@@ -179,12 +441,21 @@ class PlanResponseModel {
 
   PlanResponseModel({
     required this.ok,
+    this.orchestration,
     required this.recommendation,
+    this.recommendedJourney,
     required this.alternatives,
+    this.journeys = const [],
+    this.decision,
+    this.evaluation,
     required this.explanation,
     required this.reasons,
     required this.dataSources,
     required this.provenance,
+    this.historicalContext,
+    this.weatherContext,
+    this.metadata,
+    this.candidateCount,
     required this.warnings,
     required this.error,
     required this.errorDetail,
@@ -228,6 +499,7 @@ class PlanResponseModel {
       );
       indexRoute(rec);
     }
+
     final alts = <RouteModel>[];
     final altList = json['alternatives'];
     if (altList is List) {
@@ -246,43 +518,57 @@ class PlanResponseModel {
       }
     }
 
-    final categoryRefs = <({String category, String routeId})>[];
-    final evaluation = json['evaluation'];
-    if (evaluation is Map) {
-      final cats = evaluation['route_categories'];
-      if (cats is List) {
-        for (final c in cats) {
-          if (c is! Map) continue;
-          final cat = c['category'] as String?;
-          final id = c['route_id'] as String?;
-          if (cat == null || id == null) continue;
-          categoryRefs.add((category: cat, routeId: id));
-        }
+    JourneyModel? recommendedJourney;
+    final rj = json['recommended_journey'];
+    if (rj is Map) {
+      recommendedJourney =
+          JourneyModel.fromJson(Map<String, dynamic>.from(rj));
+    }
+
+    final journeys = <JourneyModel>[];
+    final journeysRaw = json['journeys'];
+    if (journeysRaw is List) {
+      for (final j in journeysRaw) {
+        if (j is! Map) continue;
+        journeys.add(JourneyModel.fromJson(Map<String, dynamic>.from(j)));
       }
+    }
+
+    DecisionModel? decision;
+    if (json['decision'] is Map) {
+      decision =
+          DecisionModel.fromJson(Map<String, dynamic>.from(json['decision']));
+    }
+
+    EvaluationModel? evaluation;
+    List<({String category, String routeId})> categoryRefs = const [];
+    if (json['evaluation'] is Map) {
+      final evalMap = Map<String, dynamic>.from(json['evaluation'] as Map);
+      evaluation = EvaluationModel.fromJson(evalMap);
+      categoryRefs = evaluation.entity.routeCategories;
     }
 
     final model = PlanResponseModel(
       ok: json['ok'] == true,
+      orchestration: json['orchestration'] as String?,
       recommendation: rec,
+      recommendedJourney: recommendedJourney,
       alternatives: alts,
+      journeys: journeys,
+      decision: decision,
+      evaluation: evaluation,
       explanation: (json['explanation'] as String?) ?? '',
-      reasons:
-          (json['reasons'] as List?)?.map((e) => '$e').toList() ?? const [],
-      dataSources:
-          (json['data_sources'] as List?)?.map((e) => '$e').toList() ??
-          const [],
-      provenance: json['provenance'] is Map
-          ? Map<String, dynamic>.from(json['provenance'] as Map)
-          : null,
-      warnings:
-          (json['warnings'] as List?)?.map((e) => '$e').toList() ?? const [],
+      reasons: _stringList(json['reasons']),
+      dataSources: _stringList(json['data_sources']),
+      provenance: _asStringKeyedMap(json['provenance']),
+      historicalContext: _asStringKeyedMap(json['historical_context']),
+      weatherContext: _asStringKeyedMap(json['weather_context']),
+      metadata: _asStringKeyedMap(json['metadata']),
+      candidateCount: (json['candidate_count'] as num?)?.toInt(),
+      warnings: _stringList(json['warnings']),
       error: json['error'] as String?,
       errorDetail: json['error_detail'] as String?,
-      gemini: GeminiMetaModel.fromJson(
-        json['gemini'] is Map
-            ? Map<String, dynamic>.from(json['gemini'] as Map)
-            : null,
-      ),
+      gemini: GeminiMetaModel.fromJson(_asStringKeyedMap(json['gemini'])),
       historicalSignalUsed: json['historical_signal_used'] == true,
       categoryRefs: categoryRefs,
     );
@@ -290,7 +576,6 @@ class PlanResponseModel {
     return model;
   }
 
-  /// Filled during fromJson for category resolution.
   Map<String, RouteModel> _routeIndex = {};
 
   CommutePlan toEntity() {
@@ -301,7 +586,6 @@ class PlanResponseModel {
       final route = _routeIndex[ref.routeId];
       if (route == null) continue;
       if (seen.contains(route.routeId)) continue;
-      // Skip if same as recommendation (avoid duplicate cards)
       if (recommendation?.routeId == route.routeId) continue;
       seen.add(route.routeId);
       categories.add(
@@ -310,12 +594,21 @@ class PlanResponseModel {
     }
     return CommutePlan(
       ok: ok,
+      orchestration: orchestration,
       recommendation: recommendation?.toEntity(),
+      recommendedJourney: recommendedJourney?.entity,
       alternatives: alternatives.map((a) => a.toEntity()).toList(),
+      journeys: journeys.map((j) => j.entity).toList(),
+      decision: decision?.entity,
+      evaluation: evaluation?.entity,
       explanation: explanation,
       reasons: reasons,
       dataSources: dataSources,
       provenance: provenance,
+      historicalContext: historicalContext,
+      weatherContext: weatherContext,
+      metadata: metadata,
+      candidateCount: candidateCount,
       warnings: warnings,
       error: error,
       errorDetail: errorDetail,
@@ -354,18 +647,18 @@ class ContextChangeModel {
   });
 
   factory ContextChangeModel.fromEntity(ContextChange e) => ContextChangeModel(
-    trafficChanged: e.trafficChanged,
-    disruptionChanged: e.disruptionChanged,
-    weatherChanged: e.weatherChanged,
-    contextSource: e.contextSource,
-    targetRouteId: e.targetRouteId,
-    congestionDelta: e.congestionDelta,
-    travelTimeDeltaMinutes: e.travelTimeDeltaMinutes,
-    disruptionDelta: e.disruptionDelta,
-    weatherNote: e.weatherNote,
-    description: e.description,
-    updatedDepartureTime: e.updatedDepartureTime,
-  );
+        trafficChanged: e.trafficChanged,
+        disruptionChanged: e.disruptionChanged,
+        weatherChanged: e.weatherChanged,
+        contextSource: e.contextSource,
+        targetRouteId: e.targetRouteId,
+        congestionDelta: e.congestionDelta,
+        travelTimeDeltaMinutes: e.travelTimeDeltaMinutes,
+        disruptionDelta: e.disruptionDelta,
+        weatherNote: e.weatherNote,
+        description: e.description,
+        updatedDepartureTime: e.updatedDepartureTime,
+      );
 
   factory ContextChangeModel.fromJson(Map<String, dynamic> json) {
     return ContextChangeModel(
@@ -385,40 +678,42 @@ class ContextChangeModel {
   }
 
   Map<String, dynamic> toJson() => {
-    'traffic_changed': trafficChanged,
-    'disruption_changed': disruptionChanged,
-    'weather_changed': weatherChanged,
-    'context_source': contextSource,
-    if (targetRouteId != null) 'target_route_id': targetRouteId,
-    'congestion_delta': congestionDelta,
-    'travel_time_delta_minutes': travelTimeDeltaMinutes,
-    'disruption_delta': disruptionDelta,
-    if (weatherNote != null) 'weather_note': weatherNote,
-    'description': description,
-    if (updatedDepartureTime != null)
-      'updated_departure_time': updatedDepartureTime,
-  };
+        'traffic_changed': trafficChanged,
+        'disruption_changed': disruptionChanged,
+        'weather_changed': weatherChanged,
+        'context_source': contextSource,
+        if (targetRouteId != null) 'target_route_id': targetRouteId,
+        'congestion_delta': congestionDelta,
+        'travel_time_delta_minutes': travelTimeDeltaMinutes,
+        'disruption_delta': disruptionDelta,
+        if (weatherNote != null) 'weather_note': weatherNote,
+        'description': description,
+        if (updatedDepartureTime != null)
+          'updated_departure_time': updatedDepartureTime,
+      };
 
   ContextChange toEntity() => ContextChange(
-    trafficChanged: trafficChanged,
-    disruptionChanged: disruptionChanged,
-    weatherChanged: weatherChanged,
-    contextSource: contextSource,
-    targetRouteId: targetRouteId,
-    congestionDelta: congestionDelta,
-    travelTimeDeltaMinutes: travelTimeDeltaMinutes,
-    disruptionDelta: disruptionDelta,
-    weatherNote: weatherNote,
-    description: description,
-    updatedDepartureTime: updatedDepartureTime,
-  );
+        trafficChanged: trafficChanged,
+        disruptionChanged: disruptionChanged,
+        weatherChanged: weatherChanged,
+        contextSource: contextSource,
+        targetRouteId: targetRouteId,
+        congestionDelta: congestionDelta,
+        travelTimeDeltaMinutes: travelTimeDeltaMinutes,
+        disruptionDelta: disruptionDelta,
+        weatherNote: weatherNote,
+        description: description,
+        updatedDepartureTime: updatedDepartureTime,
+      );
 }
 
 class ReplanResponseModel {
   final bool ok;
+  final String? orchestration;
   final bool recommendationChanged;
   final String? previousRouteId;
   final String? newRouteId;
+  final String? decision;
   final RouteModel? previousRecommendation;
   final RouteModel? newRecommendation;
   final ContextChangeModel? contextChange;
@@ -432,12 +727,15 @@ class ReplanResponseModel {
   final String? error;
   final String? errorDetail;
   final GeminiMetaModel gemini;
+  final String? planId;
 
   const ReplanResponseModel({
     required this.ok,
+    this.orchestration,
     required this.recommendationChanged,
     required this.previousRouteId,
     required this.newRouteId,
+    this.decision,
     required this.previousRecommendation,
     required this.newRecommendation,
     required this.contextChange,
@@ -451,6 +749,7 @@ class ReplanResponseModel {
     required this.error,
     required this.errorDetail,
     required this.gemini,
+    this.planId,
   });
 
   factory ReplanResponseModel.fromJson(Map<String, dynamic> json) {
@@ -472,61 +771,45 @@ class ReplanResponseModel {
     }
     return ReplanResponseModel(
       ok: json['ok'] == true,
+      orchestration: json['orchestration'] as String?,
       recommendationChanged: json['recommendation_changed'] == true,
       previousRouteId: json['previous_route_id'] as String?,
       newRouteId: json['new_route_id'] as String?,
+      decision: json['decision'] as String?,
       previousRecommendation: prev,
       newRecommendation: next,
       contextChange: ctx,
       explanation: (json['explanation'] as String?) ?? '',
-      before:
-          json['before'] is Map
-              ? Map<String, dynamic>.from(json['before'] as Map)
-              : null,
-      after:
-          json['after'] is Map
-              ? Map<String, dynamic>.from(json['after'] as Map)
-              : null,
-      reasons:
-          json['reasons'] is Map
-              ? Map<String, dynamic>.from(json['reasons'] as Map)
-              : null,
-      dataSources:
-          (json['data_sources'] as List?)?.map((e) => '$e').toList() ??
-          const [],
-      provenance:
-          json['provenance'] is Map
-              ? Map<String, dynamic>.from(json['provenance'] as Map)
-              : null,
-      warnings:
-          (json['warnings'] as List?)?.map((e) => '$e').toList() ?? const [],
+      before: _asStringKeyedMap(json['before']),
+      after: _asStringKeyedMap(json['after']),
+      reasons: _asStringKeyedMap(json['reasons']),
+      dataSources: _stringList(json['data_sources']),
+      provenance: _asStringKeyedMap(json['provenance']),
+      warnings: _stringList(json['warnings']),
       error: json['error'] as String?,
       errorDetail: json['error_detail'] as String?,
-      gemini: GeminiMetaModel.fromJson(
-        json['gemini'] is Map
-            ? Map<String, dynamic>.from(json['gemini'] as Map)
-            : null,
-      ),
+      gemini: GeminiMetaModel.fromJson(_asStringKeyedMap(json['gemini'])),
+      planId: json['plan_id'] as String?,
     );
   }
 
   ReplanResult toEntity() => ReplanResult(
-    ok: ok,
-    recommendationChanged: recommendationChanged,
-    previousRouteId: previousRouteId,
-    newRouteId: newRouteId,
-    previousRecommendation: previousRecommendation?.toEntity(),
-    newRecommendation: newRecommendation?.toEntity(),
-    contextChange: contextChange?.toEntity(),
-    explanation: explanation,
-    before: before,
-    after: after,
-    reasons: reasons,
-    dataSources: dataSources,
-    provenance: provenance,
-    warnings: warnings,
-    error: error,
-    errorDetail: errorDetail,
-    gemini: gemini.toEntity(),
-  );
+        ok: ok,
+        recommendationChanged: recommendationChanged,
+        previousRouteId: previousRouteId,
+        newRouteId: newRouteId,
+        previousRecommendation: previousRecommendation?.toEntity(),
+        newRecommendation: newRecommendation?.toEntity(),
+        contextChange: contextChange?.toEntity(),
+        explanation: explanation,
+        before: before,
+        after: after,
+        reasons: reasons,
+        dataSources: dataSources,
+        provenance: provenance,
+        warnings: warnings,
+        error: error,
+        errorDetail: errorDetail,
+        gemini: gemini.toEntity(),
+      );
 }

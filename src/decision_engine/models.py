@@ -47,6 +47,14 @@ class RouteCandidate:
     distance_meters: Optional[int] = None  # Google-provided when adapted from Maps
     # Segment modes for hard exclusion across the full journey (not scoring).
     component_modes: Optional[List[str]] = None
+    # Phase 6E: explicit known/unknown — never treat unknown cost as free.
+    cost_status: str = "known"  # known | unknown | unavailable
+    duration_status: str = "known"  # known | unknown | unavailable
+    partial_known_cost_inr: Optional[float] = None
+    mode_signature: str = ""
+    access_walking_meters: Optional[float] = None
+    transfer_walking_meters: Optional[float] = None
+    egress_walking_meters: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert candidate to dictionary serialization."""
@@ -55,6 +63,9 @@ class RouteCandidate:
             "mode": self.mode,
             "travel_time_minutes": self.travel_time_minutes,
             "cost": self.cost,
+            "cost_status": self.cost_status,
+            "duration_status": self.duration_status,
+            "partial_known_cost_inr": self.partial_known_cost_inr,
             "walking_minutes": self.walking_minutes,
             "transfers": self.transfers,
             "congestion_score": self.congestion_score,
@@ -65,6 +76,10 @@ class RouteCandidate:
             "google_route_token": self.google_route_token,
             "distance_meters": self.distance_meters,
             "component_modes": list(self.component_modes) if self.component_modes else None,
+            "mode_signature": self.mode_signature,
+            "access_walking_meters": self.access_walking_meters,
+            "transfer_walking_meters": self.transfer_walking_meters,
+            "egress_walking_meters": self.egress_walking_meters,
         }
 
 

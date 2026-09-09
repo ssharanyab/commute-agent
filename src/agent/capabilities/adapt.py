@@ -2,18 +2,53 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.agent.capabilities import (
     HistoricalCapabilityResult,
     TrafficEnrichmentResult,
 )
 from src.decision_engine.models import RouteCandidate
-from src.journey_builder.models import Journey
+from src.journey_builder.models import Journey, ValueStatus
 
 WALK_M_PER_MIN = 80.0
 BUS_M_PER_MIN = 250.0  # structural estimate only when schedule/live missing
 METRO_M_PER_MIN = 500.0
+
+
+def _leg_duration_minutes(
+    leg,
+    enrichment: Optional[TrafficEnrichmentResult],
+) -> Tuple[Optional[float], str]:
+    """
+    Return (minutes, status) for one leg.
+
+    Road legs without enrichment: unknown (do not invent traffic time).
+    Transit without schedule: structural estimate with status unknown.
+    Walk: geometric estimate with status known.
+    """
+    if enrichment is not None and enrichment.available and enrichment.duration_minutes is not None:
+        return float(enrichment.duration_minutes), ValueStatus.KNOWN.value
+
+    if leg.duration_status == ValueStatus.KNOWN.value and leg.duration_seconds is not None:
+        return float(leg.duration_seconds) / 60.0, ValueStatus.KNOWN.value
+
+    if leg.duration_status == ValueStatus.UNAVAILABLE.value:
+        return None, ValueStatus.UNAVAILABLE.value
+
+    dist = float(leg.distance_meters or 0.0)
+    mode = leg.mode.value
+    if mode == "walk":
+        return (dist / WALK_M_PER_MIN if dist else 0.0), ValueStatus.KNOWN.value
+    if mode == "metro":
+        # Structural only — community schedules are not authoritative.
+        return ((dist / METRO_M_PER_MIN) if dist else 8.0), ValueStatus.UNKNOWN.value
+    if mode == "bus":
+        return ((dist / BUS_M_PER_MIN) if dist else 12.0), ValueStatus.UNKNOWN.value
+    if leg.needs_enrichment or mode in {"cab", "auto_rickshaw"}:
+        # No Maps result — duration unknown (not fabricated).
+        return None, ValueStatus.UNKNOWN.value
+    return None, ValueStatus.UNKNOWN.value
 
 
 def journeys_to_route_candidates(
@@ -25,8 +60,14 @@ def journeys_to_route_candidates(
     """
     Convert structural journeys into RouteCandidates for deterministic ranking.
 
-    Missing live times are estimated only from published distances with explicit
-    low reliability — never from Gemini. Enrichment durations override estimates.
+    Cost: known journey total when available; otherwise cost_status=unknown
+    with cost=0.0 as a non-scoring placeholder (Decision Engine treats unknown
+    as neutral — never as free).
+
+    Duration: prefers per-leg enrichment / known leg times; road legs without
+    enrichment contribute unknown (not invented). Travel time used for ranking
+    is the sum of known leg minutes only when any unknown remains — marked
+    duration_status=unknown and reliability capped.
     """
     enrichments = enrichments or {}
     out: List[RouteCandidate] = []
@@ -34,32 +75,55 @@ def journeys_to_route_candidates(
         by_leg = {
             e.leg_index: e
             for e in enrichments.get(journey.candidate_id, [])
-            if e.available
         }
         travel_min = 0.0
-        used_estimate = False
+        any_unknown_duration = False
+        any_unavailable_duration = False
         used_enrichment = False
+        congestion_scores: List[float] = []
+        total_distance = 0.0
+
         for leg in journey.legs:
-            if leg.index in by_leg and by_leg[leg.index].duration_minutes is not None:
-                travel_min += float(by_leg[leg.index].duration_minutes)
+            if leg.distance_meters is not None:
+                total_distance += float(leg.distance_meters)
+            enr = by_leg.get(leg.index)
+            minutes, status = _leg_duration_minutes(leg, enr)
+            if enr is not None and enr.available:
                 used_enrichment = True
-                continue
-            dist = float(leg.distance_meters or 0.0)
-            if leg.mode.value == "walk":
-                travel_min += dist / WALK_M_PER_MIN if dist else 0.0
-            elif leg.mode.value == "metro":
-                travel_min += (dist / METRO_M_PER_MIN) if dist else 8.0
-                used_estimate = True
-            elif leg.mode.value == "bus":
-                travel_min += (dist / BUS_M_PER_MIN) if dist else 12.0
-                used_estimate = True
-            elif leg.needs_enrichment:
-                # Road leg without enrichment — do not invent traffic time.
-                used_estimate = True
-                travel_min += (dist / 400.0) if dist else 15.0
-            else:
-                travel_min += 5.0
-                used_estimate = True
+                ti = enr.traffic_info or {}
+                if ti.get("congestion_score") is not None:
+                    try:
+                        congestion_scores.append(float(ti["congestion_score"]))
+                    except (TypeError, ValueError):
+                        pass
+            elif leg.metadata.get("traffic_info", {}).get("congestion_score") is not None:
+                try:
+                    congestion_scores.append(
+                        float(leg.metadata["traffic_info"]["congestion_score"])
+                    )
+                except (TypeError, ValueError):
+                    pass
+
+            if status == ValueStatus.UNAVAILABLE.value:
+                any_unavailable_duration = True
+            elif status == ValueStatus.UNKNOWN.value:
+                any_unknown_duration = True
+            if minutes is not None:
+                travel_min += minutes
+
+        # Prefer post-enrichment journey aggregate when fully known.
+        if (
+            journey.duration_status == ValueStatus.KNOWN.value
+            and journey.total_duration_seconds is not None
+        ):
+            travel_min = float(journey.total_duration_seconds) / 60.0
+            duration_status = ValueStatus.KNOWN.value
+        elif any_unavailable_duration:
+            duration_status = ValueStatus.UNAVAILABLE.value
+        elif any_unknown_duration:
+            duration_status = ValueStatus.UNKNOWN.value
+        else:
+            duration_status = ValueStatus.KNOWN.value
 
         walk_min = journey.walking_distance_meters / WALK_M_PER_MIN
         modes = journey.modes
@@ -71,25 +135,25 @@ def journeys_to_route_candidates(
             mode_label = "unknown"
 
         reliability = 0.75
-        congestion = 0.35
+        if congestion_scores:
+            congestion = sum(congestion_scores) / len(congestion_scores)
+        else:
+            congestion = 0.35
+
         hist_signal = None
         if historical and historical.coverage:
             hist_signal = dict(historical.signal)
             if historical.reliability is not None:
                 reliability = float(historical.reliability)
-            if historical.expected_duration_minutes is not None and mode_label in {
-                "cab",
-                "auto_rickshaw",
-                "hybrid",
-            }:
-                # Soft context only — Decision Engine still ranks; do not replace
-                # transit structural times silently for pure transit.
-                pass
 
-        if used_estimate and not used_enrichment:
+        if duration_status != ValueStatus.KNOWN.value:
+            reliability = min(reliability, 0.55)
+        if not used_enrichment and any(
+            l.needs_enrichment or l.mode.value in {"cab", "auto_rickshaw"}
+            for l in journey.legs
+        ):
             reliability = min(reliability, 0.55)
 
-        # Polyline from first successful enrichment if any
         polyline = None
         token = None
         for e in enrichments.get(journey.candidate_id, []):
@@ -97,14 +161,26 @@ def journeys_to_route_candidates(
                 polyline = e.polyline
                 token = e.route_token
                 break
+        if polyline is None:
+            for leg in journey.legs:
+                if leg.metadata.get("polyline"):
+                    polyline = leg.metadata["polyline"]
+                    token = leg.metadata.get("route_token")
+                    break
 
-        # Prefer known journey-level fare; never invent cab/transit prices.
-        cost_val = 0.0
-        if (
-            journey.cost_status == "known"
-            and journey.total_cost_inr is not None
-        ):
+        cost_status = journey.cost_status or ValueStatus.UNKNOWN.value
+        if cost_status == ValueStatus.KNOWN.value and journey.total_cost_inr is not None:
             cost_val = float(journey.total_cost_inr)
+            partial = cost_val
+        else:
+            # Placeholder only — scoring uses cost_status=unknown as neutral.
+            cost_val = 0.0
+            partial = None
+            known_parts = [
+                float(l.cost_inr) for l in journey.legs if l.cost_inr is not None
+            ]
+            if known_parts:
+                partial = round(sum(known_parts), 2)
 
         out.append(
             RouteCandidate(
@@ -120,7 +196,15 @@ def journeys_to_route_candidates(
                 historical_mobility_signal=hist_signal,
                 google_polyline=polyline,
                 google_route_token=token,
+                distance_meters=int(total_distance) if total_distance else None,
                 component_modes=list(modes),
+                cost_status=cost_status,
+                duration_status=duration_status,
+                partial_known_cost_inr=partial,
+                mode_signature=journey.mode_signature or "",
+                access_walking_meters=journey.access_walking_meters,
+                transfer_walking_meters=journey.transfer_walking_meters,
+                egress_walking_meters=journey.egress_walking_meters,
             )
         )
     return out

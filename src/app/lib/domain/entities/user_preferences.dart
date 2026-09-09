@@ -24,20 +24,49 @@ class UserPreferences {
   });
 }
 
-/// Soft optimization profiles mapped to backend preference weights.
-enum OptimizationProfile { fast, cheap, reliable, easy }
+/// Soft preference profiles mapped to backend Decision Engine names.
+enum OptimizationProfile {
+  balanced,
+  fastest,
+  cheapest,
+  lessWalking,
+  moreReliable,
+  lowerTraffic,
+}
 
 extension OptimizationProfileWeights on OptimizationProfile {
   String get label {
     switch (this) {
-      case OptimizationProfile.fast:
-        return 'Fast';
-      case OptimizationProfile.cheap:
-        return 'Cheap';
-      case OptimizationProfile.reliable:
-        return 'Reliable';
-      case OptimizationProfile.easy:
-        return 'Easy';
+      case OptimizationProfile.balanced:
+        return 'Balanced';
+      case OptimizationProfile.fastest:
+        return 'Fastest';
+      case OptimizationProfile.cheapest:
+        return 'Cheapest';
+      case OptimizationProfile.lessWalking:
+        return 'Less walking';
+      case OptimizationProfile.moreReliable:
+        return 'More reliable';
+      case OptimizationProfile.lowerTraffic:
+        return 'Lower traffic';
+    }
+  }
+
+  /// Backend Decision Engine profile name (soft weights only).
+  String get preferenceProfileName {
+    switch (this) {
+      case OptimizationProfile.balanced:
+        return 'BALANCED';
+      case OptimizationProfile.fastest:
+        return 'FASTEST';
+      case OptimizationProfile.cheapest:
+        return 'CHEAPEST';
+      case OptimizationProfile.lessWalking:
+        return 'LOW_WALKING';
+      case OptimizationProfile.moreReliable:
+        return 'RELIABLE';
+      case OptimizationProfile.lowerTraffic:
+        return 'LOW_TRAFFIC';
     }
   }
 
@@ -47,7 +76,19 @@ extension OptimizationProfileWeights on OptimizationProfile {
     List<String> excludedModes = const [],
   }) {
     switch (this) {
-      case OptimizationProfile.fast:
+      case OptimizationProfile.balanced:
+        return UserPreferences(
+          avoidHeavyTraffic: avoidHeavyTraffic,
+          maxWalkingMinutes: maxWalkingMinutes,
+          excludedModes: excludedModes,
+          timeWeight: 1.0,
+          costWeight: 1.0,
+          walkingWeight: 1.0,
+          transferWeight: 1.0,
+          congestionWeight: 1.0,
+          reliabilityWeight: 1.0,
+        );
+      case OptimizationProfile.fastest:
         return UserPreferences(
           avoidHeavyTraffic: avoidHeavyTraffic,
           maxWalkingMinutes: maxWalkingMinutes,
@@ -59,7 +100,7 @@ extension OptimizationProfileWeights on OptimizationProfile {
           congestionWeight: 1.0,
           reliabilityWeight: 1.0,
         );
-      case OptimizationProfile.cheap:
+      case OptimizationProfile.cheapest:
         return UserPreferences(
           avoidHeavyTraffic: avoidHeavyTraffic,
           maxWalkingMinutes: maxWalkingMinutes,
@@ -71,7 +112,19 @@ extension OptimizationProfileWeights on OptimizationProfile {
           congestionWeight: 1.0,
           reliabilityWeight: 1.0,
         );
-      case OptimizationProfile.reliable:
+      case OptimizationProfile.lessWalking:
+        return UserPreferences(
+          avoidHeavyTraffic: avoidHeavyTraffic,
+          maxWalkingMinutes: maxWalkingMinutes,
+          excludedModes: excludedModes,
+          timeWeight: 1.0,
+          costWeight: 1.0,
+          walkingWeight: 8.0,
+          transferWeight: 4.0,
+          congestionWeight: 1.0,
+          reliabilityWeight: 1.0,
+        );
+      case OptimizationProfile.moreReliable:
         return UserPreferences(
           avoidHeavyTraffic: avoidHeavyTraffic,
           maxWalkingMinutes: maxWalkingMinutes,
@@ -83,16 +136,16 @@ extension OptimizationProfileWeights on OptimizationProfile {
           congestionWeight: 1.0,
           reliabilityWeight: 8.0,
         );
-      case OptimizationProfile.easy:
+      case OptimizationProfile.lowerTraffic:
         return UserPreferences(
           avoidHeavyTraffic: avoidHeavyTraffic,
           maxWalkingMinutes: maxWalkingMinutes,
           excludedModes: excludedModes,
           timeWeight: 1.0,
           costWeight: 1.0,
-          walkingWeight: 8.0,
-          transferWeight: 4.0,
-          congestionWeight: 1.0,
+          walkingWeight: 1.0,
+          transferWeight: 1.0,
+          congestionWeight: 8.0,
           reliabilityWeight: 1.0,
         );
     }

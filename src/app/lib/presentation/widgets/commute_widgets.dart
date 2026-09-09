@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/entities/commute_route.dart';
 import '../../domain/entities/context_change.dart';
+import '../utils/labels.dart';
 
 class RouteCard extends StatelessWidget {
   const RouteCard({super.key, required this.route, this.emphasize = false});
@@ -37,10 +38,14 @@ class RouteCard extends StatelessWidget {
               runSpacing: 4,
               children: [
                 Text('Mode: ${route.mode}'),
-                Text('Time: ${route.travelTimeMinutes.toStringAsFixed(0)} min'),
+                Text(
+                  'Time: ${formatDurationLabel(travelTimeMinutes: route.travelTimeMinutes, known: route.hasKnownDuration)}',
+                ),
                 if (route.distanceKm != null)
                   Text('Distance: ${route.distanceKm!.toStringAsFixed(1)} km'),
-                Text('Cost: ₹${route.cost.toStringAsFixed(0)}'),
+                Text(
+                  'Cost: ${formatCostLabel(cost: route.cost, known: route.hasKnownCost, partialKnownCostInr: route.partialKnownCostInr)}',
+                ),
                 Text('Walk: ${route.walkingMinutes.toStringAsFixed(0)} min'),
                 Text('Transfers: ${route.transfers}'),
               ],

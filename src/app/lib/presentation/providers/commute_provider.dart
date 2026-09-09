@@ -56,15 +56,19 @@ class CommuteProvider extends ChangeNotifier {
     } on ApiException catch (e) {
       plan = null;
       status = CommuteStatus.error;
-      errorTitle = "Couldn't plan this commute";
-      errorDetail = e.message;
+      errorTitle = e.kind == ApiErrorKind.network
+          ? "Couldn't reach Commute Agent."
+          : "Couldn't plan this commute";
+      errorDetail = e.kind == ApiErrorKind.network
+          ? 'Check your connection and try again.'
+          : e.message;
       notifyListeners();
       return false;
     } catch (e) {
       plan = null;
       status = CommuteStatus.error;
-      errorTitle = "Couldn't plan this commute";
-      errorDetail = 'Request failed: $e';
+      errorTitle = "Couldn't reach Commute Agent.";
+      errorDetail = 'Check your connection and try again.';
       notifyListeners();
       return false;
     } finally {
@@ -143,6 +147,14 @@ class CommuteProvider extends ChangeNotifier {
     }
     if (code == 'NO_VALID_ROUTES') {
       return 'No route matches your current constraints.'
+          '${detail.isEmpty ? '' : '\n\n$detail'}';
+    }
+    if (code == 'COORDINATES_UNRESOLVED') {
+      return 'Could not resolve origin or destination.'
+          '${detail.isEmpty ? '' : '\n\n$detail'}';
+    }
+    if (code == 'NO_FEASIBLE_JOURNEY' || code == 'NO_CANDIDATES') {
+      return 'No feasible journey was found for this commute.'
           '${detail.isEmpty ? '' : '\n\n$detail'}';
     }
     if (code.isNotEmpty) {

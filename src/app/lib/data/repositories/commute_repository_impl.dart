@@ -3,21 +3,24 @@ import '../../domain/entities/commute_request.dart';
 import '../../domain/entities/context_change.dart';
 import '../../domain/entities/replan_result.dart';
 import '../../domain/repositories/commute_repository.dart';
-import '../datasources/commute_remote_data_source.dart';
+import '../datasources/commute_api_client.dart';
 import '../models/commute_models.dart';
 
 class CommuteRepositoryImpl implements CommuteRepository {
   CommuteRepositoryImpl({
     required String baseUrl,
-    CommuteRemoteDataSource? dataSource,
-  }) : _dataSource = dataSource ?? CommuteRemoteDataSource(baseUrl: baseUrl);
+    CommuteApiClient? dataSource,
+    CommuteRemoteDataSource? remoteDataSource,
+  }) : _client = dataSource ??
+            remoteDataSource ??
+            CommuteApiClient(baseUrl: baseUrl);
 
-  final CommuteRemoteDataSource _dataSource;
+  final CommuteApiClient _client;
 
   @override
   Future<CommutePlan> planCommute(CommuteRequest request) async {
     final body = _planBody(request);
-    final model = await _dataSource.plan(body);
+    final model = await _client.plan(body);
     return model.toEntity();
   }
 
@@ -34,7 +37,7 @@ class CommuteRepositoryImpl implements CommuteRepository {
       'refresh_live_routes': refreshLiveRoutes,
       'invoke_gemini': invokeGemini,
     };
-    final model = await _dataSource.replan(payload);
+    final model = await _client.replan(payload);
     return model.toEntity();
   }
 
@@ -62,11 +65,31 @@ class CommuteRepositoryImpl implements CommuteRepository {
     return {
       'origin': request.origin,
       'destination': request.destination,
-      'departure_time': request.departureTimeIso8601,
+      if (request.departureTimeIso8601 != null)
+        'departure_time': request.departureTimeIso8601,
+      'user_id': request.userId,
+      if (request.objective != null) 'objective': request.objective,
+      if (request.preferenceProfile != null)
+        'preference_profile': request.preferenceProfile,
+      if (request.originZone != null) 'origin_zone': request.originZone,
+      if (request.destinationZone != null)
+        'destination_zone': request.destinationZone,
+      if (request.originLat != null) 'origin_lat': request.originLat,
+      if (request.originLon != null) 'origin_lon': request.originLon,
+      if (request.destinationLat != null)
+        'destination_lat': request.destinationLat,
+      if (request.destinationLon != null)
+        'destination_lon': request.destinationLon,
+      if (request.modes != null) 'modes': request.modes,
       'invoke_gemini': request.invokeGemini,
+      'invoke_weather': request.invokeWeather,
+      'invoke_historical': request.invokeHistorical,
+      if (request.invokeLiveTraffic != null)
+        'invoke_live_traffic': request.invokeLiveTraffic,
+      'allow_legacy_maps_fallback': request.allowLegacyMapsFallback,
       'preferences': preferences,
     };
   }
 
-  void close() => _dataSource.close();
+  void close() => _client.close();
 }

@@ -15,13 +15,42 @@ from src.api.service import execute_plan, execute_replan
 from src.planner.models import InvalidCommuteRequest, InvalidReplanInput
 
 
+_CLIENT_ERRORS = {
+    "COORDINATES_UNRESOLVED",
+    "INVALID_REQUEST",
+}
+_NOT_FOUND_ERRORS = {
+    "NO_ROUTES",
+    "NO_VALID_ROUTES",
+    "NO_FEASIBLE_JOURNEY",
+    "NO_CANDIDATES",
+}
+_UPSTREAM_ERRORS = {
+    "MAPS_API_UNAVAILABLE",
+}
+
+
+def _status_for_payload(payload: Dict[str, Any]) -> int:
+    err = payload.get("error")
+    if not err:
+        return 200
+    if err in _UPSTREAM_ERRORS:
+        return 502
+    if err in _NOT_FOUND_ERRORS:
+        return 404
+    if err in _CLIENT_ERRORS:
+        return 400
+    return 500
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Patchamomma Commute Agent API",
         version="0.1.0",
         description=(
-            "Thin HTTP API over deterministic planner + adaptive replan + "
-            "optional Gemini explanations. Ranking is never done by Gemini."
+            "HTTP API over ADK Mobility Orchestrator (Journey Builder + "
+            "Decision Engine) + adaptive replan. Gemini explains only; "
+            "never ranks."
         ),
     )
 
@@ -47,14 +76,7 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        status = 200
-        if payload.get("error") == "MAPS_API_UNAVAILABLE":
-            status = 502
-        elif payload.get("error") in {"NO_ROUTES", "NO_VALID_ROUTES"}:
-            status = 404
-        elif payload.get("error"):
-            status = 500
-        return JSONResponse(content=payload, status_code=status)
+        return JSONResponse(content=payload, status_code=_status_for_payload(payload))
 
     @app.post("/replan")
     def replan(body: ReplanRequest) -> JSONResponse:
@@ -67,14 +89,7 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        status = 200
-        if payload.get("error") == "MAPS_API_UNAVAILABLE":
-            status = 502
-        elif payload.get("error") in {"NO_ROUTES", "NO_VALID_ROUTES"}:
-            status = 404
-        elif payload.get("error"):
-            status = 500
-        return JSONResponse(content=payload, status_code=status)
+        return JSONResponse(content=payload, status_code=_status_for_payload(payload))
 
     return app
 

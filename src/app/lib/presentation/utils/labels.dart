@@ -40,11 +40,13 @@ String categoryLabel(String category) {
     case 'BEST_OVERALL':
       return 'Best overall';
     case 'FASTEST':
-      return 'Fastest';
+      return '⚡ Fastest';
     case 'CHEAPEST':
-      return 'Cheapest';
+      return '💰 Lower cost';
     case 'MOST_RELIABLE':
-      return 'Most reliable';
+      return '🛡️ More reliable';
+    case 'LOW_WALKING':
+      return '🚶 Less walking';
     default:
       return category;
   }
@@ -57,14 +59,17 @@ String modeLabel(String mode) {
     case 'taxi':
       return 'Cab';
     case 'metro':
+    case 'bmrcl':
       return 'Metro';
     case 'bus':
+    case 'bmtc':
       return 'Bus';
     case 'auto':
+    case 'auto_rickshaw':
       return 'Auto';
     case 'walking':
     case 'walk':
-      return 'Walking';
+      return 'Walk';
     case 'hybrid':
       return 'Mixed';
     default:
@@ -77,4 +82,42 @@ String reliabilityBand(double score) {
   if (score >= 0.85) return 'High';
   if (score >= 0.65) return 'Medium';
   return 'Lower';
+}
+
+/// Present cost without inventing ₹0 / "Free" for unknown backend values.
+String formatCostLabel({
+  required double cost,
+  required bool known,
+  double? partialKnownCostInr,
+}) {
+  if (!known) {
+    if (partialKnownCostInr != null && partialKnownCostInr > 0) {
+      return 'From ₹${partialKnownCostInr.toStringAsFixed(0)} (partial)';
+    }
+    return 'Fare unavailable';
+  }
+  return '₹${cost.toStringAsFixed(0)}';
+}
+
+/// Present duration; unknown values are never shown as exact guarantees.
+String formatDurationLabel({
+  required double travelTimeMinutes,
+  required bool known,
+}) {
+  if (!known) {
+    if (travelTimeMinutes > 0) {
+      return '~${travelTimeMinutes.toStringAsFixed(0)} min';
+    }
+    return 'Duration unavailable';
+  }
+  return '${travelTimeMinutes.toStringAsFixed(0)} min';
+}
+
+String agentExplanationOrFallback(String? explanation) {
+  final text = (explanation ?? '').trim();
+  if (text.isEmpty) {
+    return 'Commute Agent selected this journey based on your preferences '
+        'and current route information.';
+  }
+  return text;
 }

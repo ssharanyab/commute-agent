@@ -1,26 +1,27 @@
 // Deterministic parsing of a few supported hard constraints from free text.
-// Arbitrary NL is NOT claimed to be fully understood — only clear cab/taxi exclusions.
+// Arbitrary NL is NOT claimed to be fully understood.
 
 class ConstraintParser {
-  /// Parse supported hard mode exclusions from optional notes + UI flags.
+  /// Parse supported hard mode exclusions from UI flags + optional notes.
   static List<String> excludedModes({
     required bool excludeCabs,
+    bool excludeAutos = false,
     String notes = '',
   }) {
     final out = <String>{};
-    if (excludeCabs) {
-      out.add('cab');
-    }
+    if (excludeCabs) out.add('cab');
+    if (excludeAutos) out.add('auto');
     out.addAll(parseExcludedModesFromText(notes));
     return out.toList()..sort();
   }
 
-  /// Recognizes only clear cab/taxi exclusion phrases.
+  /// Recognizes clear cab/taxi / auto exclusion phrases.
   static List<String> parseExcludedModesFromText(String raw) {
     final text = raw.trim().toLowerCase();
     if (text.isEmpty) return const [];
 
-    final patterns = <RegExp>[
+    final out = <String>{};
+    final cabPatterns = <RegExp>[
       RegExp(r"\bno\s+cabs?\b"),
       RegExp(r"\bno\s+taxis?\b"),
       RegExp(r"\bavoid\s+cabs?\b"),
@@ -32,11 +33,24 @@ class ConstraintParser {
       RegExp(r"\bwithout\s+cabs?\b"),
       RegExp(r"\bwithout\s+taxis?\b"),
     ];
-    for (final p in patterns) {
+    for (final p in cabPatterns) {
       if (p.hasMatch(text)) {
-        return const ['cab'];
+        out.add('cab');
+        break;
       }
     }
-    return const [];
+    final autoPatterns = <RegExp>[
+      RegExp(r"\bno\s+autos?\b"),
+      RegExp(r"\bavoid\s+autos?\b"),
+      RegExp(r"\bno\s+auto[- ]?rickshaws?\b"),
+      RegExp(r"\bavoid\s+auto[- ]?rickshaws?\b"),
+    ];
+    for (final p in autoPatterns) {
+      if (p.hasMatch(text)) {
+        out.add('auto');
+        break;
+      }
+    }
+    return out.toList()..sort();
   }
 }

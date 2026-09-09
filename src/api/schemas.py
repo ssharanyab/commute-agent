@@ -28,12 +28,23 @@ class PlanRequest(BaseModel):
     destination: str = Field(..., min_length=1)
     departure_time: Optional[str] = None
     objective: Optional[str] = None
+    # Named Decision Engine profile (FASTEST / CHEAPEST / …); overrides objective map.
+    preference_profile: Optional[str] = None
     user_id: str = "api-user"
     origin_zone: Optional[int] = None
     destination_zone: Optional[int] = None
+    origin_lat: Optional[float] = None
+    origin_lon: Optional[float] = None
+    destination_lat: Optional[float] = None
+    destination_lon: Optional[float] = None
     modes: Optional[List[str]] = None
     preferences: Optional[PreferencesIn] = None
     invoke_gemini: bool = True
+    invoke_weather: bool = True
+    invoke_historical: bool = True
+    # None → service default (True for live API). Tests/smoke set False explicitly.
+    invoke_live_traffic: Optional[bool] = None
+    allow_legacy_maps_fallback: bool = True
 
     @field_validator("origin", "destination")
     @classmethod
