@@ -31,6 +31,8 @@ flowchart TD
 
 > ADK orchestrates the workflow, while deterministic components remain authoritative for journey discovery, constraints and ranking.
 
+Detailed diagrams (FastAPI, Flutter, ADK vs orchestrator): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## ☁️ Built with
 
 | Layer | Technology |
