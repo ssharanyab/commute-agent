@@ -36,6 +36,7 @@ data/mobility_network/**/failed
 .tmp_bmtc_gtfs
 
 # Keep (do NOT ignore):
+#   static/gowise/          (GoWise Flutter web — run prepare_gowise_web.sh)
 #   data/mobility_network/**/active.json
 #   data/mobility_network/**/snapshots/
 #   data/mobility_network/**/seed/

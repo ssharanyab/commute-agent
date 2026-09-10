@@ -34,6 +34,10 @@ agent-transcripts
 # Flutter / mobile app (not needed for backend Cloud Run)
 src/app
 
+# Keep prebuilt GoWise web UI for the API image
+!static/
+!static/gowise/
+!static/gowise/**
 # Large / local-only data not used by the API process
 data/raw
 data/processed

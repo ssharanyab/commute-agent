@@ -199,6 +199,11 @@ def create_app() -> FastAPI:
 
         return JSONResponse(content=payload, status_code=_status_for_payload(payload))
 
+    # Flutter web UI (same origin as API). Must be registered last.
+    from src.api.static_web import mount_gowise_web
+
+    mount_gowise_web(app)
+
     return app
 
 

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/config/app_config.dart';
+
 /// Place suggestion from backend Places Autocomplete proxy.
 class PlaceSuggestion {
   final String placeId;
@@ -166,9 +168,7 @@ class PlacesApiClient {
   /// Best-effort wake of backend so the first autocomplete is less likely
   /// to hit a cold-start / DNS stall.
   Future<void> warmUp(String baseUrl) async {
-    final base = baseUrl.trim();
-    if (base.isEmpty) return;
-    final uri = Uri.parse('$base/health');
+    final uri = AppConfig.apiUri(baseUrl, '/health');
     debugPrint('[Places] warmUp GET $uri');
     try {
       final res = await _http.get(uri).timeout(const Duration(seconds: 8));
@@ -188,11 +188,10 @@ class PlacesApiClient {
       debugPrint('[Places] autocomplete skip q too short len=${q.length}');
       return const [];
     }
-    final uri = Uri.parse('$baseUrl/places/autocomplete').replace(
-      queryParameters: {
-        'q': q,
-        'limit': '$limit',
-      },
+    final uri = AppConfig.apiUri(
+      baseUrl,
+      '/places/autocomplete',
+      {'q': q, 'limit': '$limit'},
     );
     Object? lastError;
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -260,8 +259,10 @@ class PlacesApiClient {
   }) async {
     final id = placeId.trim();
     if (id.isEmpty) return null;
-    final uri = Uri.parse('$baseUrl/places/details').replace(
-      queryParameters: {'place_id': id},
+    final uri = AppConfig.apiUri(
+      baseUrl,
+      '/places/details',
+      {'place_id': id},
     );
     debugPrint('[Places] GET $uri (timeout=${_timeout.inSeconds}s)');
     final res = await _http.get(uri).timeout(_timeout);

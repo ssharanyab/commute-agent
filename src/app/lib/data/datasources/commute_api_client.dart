@@ -23,7 +23,7 @@ class CommuteApiClient {
   final http.Client _http;
   final Duration _timeout;
 
-  Uri _uri(String path) => Uri.parse('$_baseUrl$path');
+  Uri _uri(String path) => AppConfig.apiUri(_baseUrl, path);
 
   Future<Map<String, dynamic>> health() async {
     try {

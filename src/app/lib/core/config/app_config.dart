@@ -18,10 +18,15 @@ class AppConfig {
 
   /// Value for the API base URL field at startup.
   /// dart-define always wins.
+  /// Use `--dart-define=API_BASE_URL=relative` for same-origin Cloud Run hosting.
   /// Android debug defaults to the emulator→host loopback: many emulators
   /// cannot resolve Cloud Run DNS (host curl works, app times out).
   static String get initialApiBaseUrl {
     final defined = apiBaseUrlFromDefine.trim();
+    if (defined == 'relative' || defined == '.') {
+      // Same-origin (FastAPI serves Flutter web). Requests hit /plan, /places/*.
+      return '';
+    }
     if (defined.isNotEmpty) return defined;
     if (!kIsWeb &&
         kDebugMode &&
@@ -45,9 +50,19 @@ class AppConfig {
 
   static String normalizeBaseUrl(String raw) {
     var url = raw.trim();
+    if (url == 'relative' || url == '.') return '';
     while (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
     }
     return url;
+  }
+
+  /// Build an absolute or same-origin [Uri] for [path] (must start with `/`).
+  static Uri apiUri(String baseUrl, String path, [Map<String, String>? query]) {
+    final base = normalizeBaseUrl(baseUrl);
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final uri = Uri.parse('$base$normalizedPath');
+    if (query == null || query.isEmpty) return uri;
+    return uri.replace(queryParameters: query);
   }
 }

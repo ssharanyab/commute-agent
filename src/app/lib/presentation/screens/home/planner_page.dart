@@ -167,13 +167,7 @@ class _PlannerPageState extends State<PlannerPage> {
     if (provider.isLoading) return;
 
     final base = AppConfig.normalizeBaseUrl(_baseUrl.text);
-    if (base.isEmpty) {
-      provider.setConfigurationError(
-        "Couldn't reach GoWise.",
-        'Set API base URL (or pass --dart-define=API_BASE_URL=...).',
-      );
-      return;
-    }
+    // Empty base = same-origin (Cloud Run serves UI + API together).
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final departure = BengaluruDeparture.resolveForPlan(_departure.text);
@@ -529,10 +523,11 @@ class _MoreControlsSection extends StatelessWidget {
                           controller: baseUrlController,
                           decoration: const InputDecoration(
                             labelText: 'API base URL',
+                            hintText: 'Leave empty for same-origin',
                             helperText:
-                                'Android emulator defaults to Local (10.0.2.2). '
-                                'Cloud Run needs working emulator DNS — if Places '
-                                'times out, stay on Local (uvicorn on host :8000).',
+                                'Empty / relative = same host (Cloud Run). '
+                                'Android emulator: Local (10.0.2.2). '
+                                'Cloud Run chip = absolute demo URL.',
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -540,6 +535,13 @@ class _MoreControlsSection extends StatelessWidget {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
+                            ActionChip(
+                              key: const Key('api_base_same_origin'),
+                              label: const Text('Same origin'),
+                              onPressed: () {
+                                baseUrlController.text = '';
+                              },
+                            ),
                             ActionChip(
                               key: const Key('api_base_cloud'),
                               label: const Text('Cloud Run'),

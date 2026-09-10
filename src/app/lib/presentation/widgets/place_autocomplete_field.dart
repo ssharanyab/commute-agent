@@ -89,11 +89,10 @@ class PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   }
 
   void _warmBackend() {
-    final base = widget.baseUrl.trim();
-    if (_warmStarted || base.isEmpty) return;
+    if (_warmStarted) return;
     _warmStarted = true;
-    // Fire-and-forget; autocomplete must not wait on this.
-    unawaited(_client.warmUp(base));
+    // Fire-and-forget; empty baseUrl = same-origin (/health).
+    unawaited(_client.warmUp(widget.baseUrl.trim()));
   }
 
   @override
@@ -143,9 +142,9 @@ class PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     if (_committedText != null) return;
     final q = widget.controller.text.trim();
     final base = widget.baseUrl.trim();
-    if (q.length < 2 || base.isEmpty) {
+    if (q.length < 2) {
       debugPrint(
-        '[PlacesField:${widget.label}] skip q="$q" baseEmpty=${base.isEmpty}',
+        '[PlacesField:${widget.label}] skip q="$q" (too short)',
       );
       if (mounted) {
         setState(() {

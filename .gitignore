@@ -98,3 +98,8 @@ src/app/.packages
 src/app/build/
 src/app/.fvm/flutter_sdk
 **/.fvm/flutter_sdk
+
+# Prebuilt GoWise web for Cloud Run (regenerate: scripts/prepare_gowise_web.sh)
+# Keep a small placeholder index.html in git; ignore the ~28MB Flutter output.
+/static/gowise/**
+!/static/gowise/index.html
