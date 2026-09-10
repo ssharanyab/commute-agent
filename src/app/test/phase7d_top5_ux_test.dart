@@ -387,7 +387,8 @@ void main() {
       expect(find.byType(RouteMap), findsNothing);
     });
 
-    testWidgets('unknown cost does not show ₹0', (tester) async {
+    testWidgets('unknown cost does not show ₹0 or Fare unavailable',
+        (tester) async {
       final plan = _planWithTop([
         _topOptionJson(
           id: 'u',
@@ -401,7 +402,7 @@ void main() {
         ),
       ]);
       await pump(tester, _provider(plan));
-      expect(find.textContaining('Fare unavailable'), findsOneWidget);
+      expect(find.textContaining('Fare unavailable'), findsNothing);
       expect(find.text('₹0'), findsNothing);
     });
 
@@ -504,7 +505,7 @@ void main() {
       ]);
       await pump(tester, _provider(plan));
       expect(find.byKey(const Key('maps_handoff')), findsOneWidget);
-      expect(find.text('Take this journey'), findsOneWidget);
+      expect(find.text('Open in Maps'), findsOneWidget);
       final btn = tester.widget<FilledButton>(
         find.byKey(const Key('maps_handoff')),
       );

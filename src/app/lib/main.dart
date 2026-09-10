@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +16,12 @@ class CommuteAgentApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final base = ThemeData(
       useMaterial3: true,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: const Color(0xFF0F6E56),
         brightness: Brightness.light,
@@ -25,6 +32,7 @@ class CommuteAgentApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Patchamomma Commute',
         debugShowCheckedModeBanner: false,
+        
         theme: base.copyWith(
           inputDecorationTheme: const InputDecorationTheme(
             border: OutlineInputBorder(),

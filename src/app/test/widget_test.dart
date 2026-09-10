@@ -21,7 +21,10 @@ import 'package:commute_agent/presentation/providers/commute_provider.dart';
 import 'package:commute_agent/presentation/screens/home/planner_page.dart';
 import 'package:commute_agent/presentation/screens/results/result_page.dart';
 import 'package:commute_agent/presentation/utils/labels.dart';
+import 'package:commute_agent/presentation/widgets/planner/control_row.dart';
+import 'package:commute_agent/presentation/widgets/planner/preference_chip.dart';
 import 'package:commute_agent/presentation/widgets/route_map.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -123,16 +126,23 @@ void main() {
     );
   });
 
-  test('initialApiBaseUrl defaults to Cloud Run when define empty', () {
+  test('initialApiBaseUrl defaults for platform when define empty', () {
     if (AppConfig.apiBaseUrlFromDefine.trim().isEmpty) {
+      // Tests run as Android + debug → emulator local loopback.
       expect(
         AppConfig.initialApiBaseUrl,
-        AppConfig.cloudRunDefaultBaseUrl,
+        anyOf(
+          AppConfig.androidEmulatorDefaultBaseUrl,
+          AppConfig.cloudRunDefaultBaseUrl,
+          AppConfig.localDevDefaultBaseUrl,
+        ),
       );
-      expect(
-        AppConfig.initialApiBaseUrl,
-        'https://commute-agent-242496011822.asia-south1.run.app',
-      );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        expect(
+          AppConfig.initialApiBaseUrl,
+          AppConfig.androidEmulatorDefaultBaseUrl,
+        );
+      }
     } else {
       expect(
         AppConfig.initialApiBaseUrl,
@@ -614,13 +624,17 @@ void main() {
 
   group('PlannerPage UI', () {
     testWidgets('renders header, inputs, optimize chips, CTA', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(400, 1400));
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
       await tester.pumpWidget(_wrap(const PlannerPage()));
       expect(find.text('Commute Agent'), findsOneWidget);
+      expect(find.text('Plan your journey'), findsOneWidget);
       expect(
-        find.text('Your commute, intelligently composed.'),
+        find.text("I'll compose the best way to get there."),
         findsOneWidget,
       );
-      expect(find.text('Where are you heading?'), findsOneWidget);
       expect(find.text('Origin'), findsWidgets);
       expect(find.text('Destination'), findsWidgets);
       expect(find.text('Balanced'), findsOneWidget);
@@ -629,17 +643,20 @@ void main() {
       expect(find.text('More reliable'), findsOneWidget);
       expect(find.text('Less walking'), findsOneWidget);
       expect(find.text('Lower traffic'), findsOneWidget);
+      expect(find.text('Compose commute'), findsOneWidget);
+      expect(find.text('Prefer lower traffic'), findsNothing);
+
+      await tester.ensureVisible(find.byKey(const Key('more_controls_toggle')));
       expect(find.text('Avoid cab'), findsOneWidget);
       expect(find.text('Avoid auto'), findsOneWidget);
-      expect(find.text('Plan my commute'), findsOneWidget);
     });
 
     testWidgets('preference chip selection updates selection', (tester) async {
       await tester.pumpWidget(_wrap(const PlannerPage()));
       await tester.tap(find.text('Cheapest'));
       await tester.pump();
-      final cheap = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'Cheapest'),
+      final cheap = tester.widget<PreferenceChip>(
+        find.byKey(const Key('pref_cheapest')),
       );
       expect(cheap.selected, isTrue);
     });
@@ -651,13 +668,13 @@ void main() {
       });
       await tester.pumpWidget(_wrap(const PlannerPage()));
       await tester.ensureVisible(find.byKey(const Key('exclude_cab')));
-      final before = tester.widget<SwitchListTile>(
+      final before = tester.widget<ControlRow>(
         find.byKey(const Key('exclude_cab')),
       );
       expect(before.value, isFalse);
-      await tester.tap(find.text('Avoid cab'));
-      await tester.pump();
-      final after = tester.widget<SwitchListTile>(
+      await tester.tap(find.byKey(const Key('exclude_cab')));
+      await tester.pumpAndSettle();
+      final after = tester.widget<ControlRow>(
         find.byKey(const Key('exclude_cab')),
       );
       expect(after.value, isTrue);
@@ -678,10 +695,11 @@ void main() {
         find.widgetWithText(TextFormField, 'Destination'),
         'B',
       );
-      await tester.ensureVisible(find.text('Plan my commute'));
-      await tester.tap(find.text('Plan my commute'));
       await tester.pump();
-      expect(find.text('Planning your commute…'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('plan_cta')));
+      await tester.tap(find.byKey(const Key('plan_cta')));
+      await tester.pump();
+      expect(find.byKey(const Key('planning_loading')), findsOneWidget);
       expect(provider.status, CommuteStatus.loading);
 
       // Fail the plan so we stay on PlannerPage (success would navigate).
@@ -701,7 +719,14 @@ void main() {
         "Couldn't plan this commute",
         'Set API base URL',
       );
+      await tester.binding.setSurfaceSize(const Size(400, 1400));
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
       await tester.pumpWidget(_wrap(const PlannerPage(), provider: provider));
+      await tester.pump();
+      expect(provider.errorTitle, "Couldn't plan this commute");
+      expect(find.byKey(const Key('planner_error_panel')), findsOneWidget);
       expect(find.text("Couldn't plan this commute"), findsOneWidget);
       expect(find.text('RETRY'), findsOneWidget);
     });
@@ -821,7 +846,7 @@ void main() {
         find.byKey(const Key('maps_handoff')),
       );
       expect(mapsBtn.onPressed, isNotNull);
-      expect(find.text('Take this journey'), findsOneWidget);
+      expect(find.text('Open in Maps'), findsOneWidget);
     });
 
     testWidgets('maps handoff disabled without origin/destination',

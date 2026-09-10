@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/config/app_config.dart';
 import '../../data/places_api_client.dart';
+import '../theme/planner_tokens.dart';
 
 /// Origin/destination field with Bengaluru Places autocomplete via backend proxy.
 /// Selecting a suggestion fills the text and supplies lat/lon to the parent.
@@ -17,6 +19,7 @@ class PlaceAutocompleteField extends StatefulWidget {
     required this.prefixIcon,
     required this.onPlaceResolved,
     this.validator,
+    this.embedded = false,
   });
 
   final TextEditingController controller;
@@ -27,11 +30,14 @@ class PlaceAutocompleteField extends StatefulWidget {
   final ValueChanged<ResolvedPlace?> onPlaceResolved;
   final FormFieldValidator<String>? validator;
 
+  /// Borderless style for use inside [RouteComposerCard].
+  final bool embedded;
+
   @override
-  State<PlaceAutocompleteField> createState() => _PlaceAutocompleteFieldState();
+  PlaceAutocompleteFieldState createState() => PlaceAutocompleteFieldState();
 }
 
-class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
+class PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   final PlacesApiClient _client = PlacesApiClient();
   final FocusNode _focus = FocusNode();
   Timer? _debounce;
@@ -45,6 +51,23 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   /// Bumps on select / clear so in-flight autocomplete cannot reopen the panel.
   int _searchEpoch = 0;
   bool _warmStarted = false;
+
+  /// Programmatic bind used by route swap — preserves autocomplete contract.
+  void bindSelection(String label, ResolvedPlace? place) {
+    final text = label;
+    _committedText = text.isEmpty ? null : text;
+    _searchEpoch++;
+    _suggestions = const [];
+    _lastError = null;
+    if (widget.controller.text != text) {
+      widget.controller.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+    widget.onPlaceResolved(place);
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
@@ -132,8 +155,8 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
       }
       return;
     }
-    // Drop any hung prior GET before starting a new one.
-    _client.abortInFlight();
+    // Do not abortInFlight() on every keystroke — that cancels TLS mid-handshake
+    // on flaky emulator networks and surfaces as TimeoutException.
     final epoch = ++_searchEpoch;
     debugPrint('[PlacesField:${widget.label}] search q="$q" base=$base');
     setState(() {
@@ -163,15 +186,16 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     } catch (e) {
       debugPrint('[PlacesField:${widget.label}] search failed: $e');
       if (!mounted || epoch != _searchEpoch || _committedText != null) return;
-      final timedOut = e.toString().contains('TimeoutException');
+      final timedOut = e.toString().contains('TimeoutException') ||
+          e.toString().contains('Failed host lookup') ||
+          e.toString().contains('SocketException');
       final localHint = AppConfig.defaultLocalBaseUrlForPlatform();
       setState(() {
         _suggestions = const [];
         _loading = false;
         _lastError = timedOut
-            ? 'Places timed out reaching backend. '
-                'Device may not reach Cloud Run — set Advanced → API base URL '
-                'to $localHint (with local uvicorn).'
+            ? 'Places timed out ($base). Emulator often cannot reach Cloud Run — '
+                'Advanced → Local ($localHint) with uvicorn on the host.'
             : 'Places request failed. Check network / API base URL.';
       });
     }
@@ -215,6 +239,47 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     }
   }
 
+  InputDecoration _decoration(ColorScheme scheme) {
+    if (widget.embedded) {
+      return InputDecoration(
+        labelText: widget.label,
+        hintText: widget.hint,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        errorBorder: InputBorder.none,
+        focusedErrorBorder: InputBorder.none,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+        suffixIcon: _loading
+            ? const Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CupertinoActivityIndicator(radius: 8),
+                ),
+              )
+            : null,
+      );
+    }
+    return InputDecoration(
+      labelText: widget.label,
+      hintText: widget.hint,
+      prefixIcon: Icon(widget.prefixIcon),
+      suffixIcon: _loading
+          ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -224,21 +289,12 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
         TextFormField(
           controller: widget.controller,
           focusNode: _focus,
-          decoration: InputDecoration(
-            labelText: widget.label,
-            hintText: widget.hint,
-            prefixIcon: Icon(widget.prefixIcon),
-            suffixIcon: _loading
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+          decoration: _decoration(scheme),
+          style: widget.embedded
+              ? Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
                   )
-                : null,
-          ),
+              : null,
           validator: widget.validator,
           textInputAction: TextInputAction.next,
         ),
@@ -254,21 +310,26 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
         ],
         if (_suggestions.isNotEmpty)
           Material(
-            elevation: 2,
-            borderRadius: BorderRadius.circular(10),
-            color: scheme.surface,
+            elevation: widget.embedded ? 0 : 2,
+            borderRadius: BorderRadius.circular(12),
+            color: widget.embedded
+                ? PlannerTokens.surfaceStrong(scheme)
+                : scheme.surface,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 220),
               child: ListView.separated(
                 shrinkWrap: true,
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 itemCount: _suggestions.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, __) => Divider(
+                  height: 1,
+                  color: PlannerTokens.hairline(scheme),
+                ),
                 itemBuilder: (context, index) {
                   final s = _suggestions[index];
                   return ListTile(
                     dense: true,
-                    leading: const Icon(Icons.place_outlined, size: 20),
+                    leading: const Icon(CupertinoIcons.location, size: 18),
                     title: Text(s.mainText),
                     subtitle: s.secondaryText.isEmpty
                         ? null

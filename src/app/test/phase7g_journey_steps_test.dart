@@ -268,7 +268,7 @@ void main() {
       expect(find.byKey(const Key('journey_steps_timeline')), findsOneWidget);
       expect(find.text('Walk to Electronic City'), findsOneWidget);
       expect(find.text('Change from Bus to Metro at Majestic'), findsOneWidget);
-      expect(find.text('CHANGE HERE'), findsOneWidget);
+      expect(find.text('Change here'), findsOneWidget);
       expect(find.text('Majestic'), findsWidgets);
       expect(find.textContaining('Unknown'), findsNothing);
     });

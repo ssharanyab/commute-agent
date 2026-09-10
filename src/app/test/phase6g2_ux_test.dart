@@ -207,10 +207,10 @@ void main() {
         find.byKey(const Key('maps_handoff')),
         200,
       );
-      expect(find.text('Take this journey'), findsOneWidget);
+      expect(find.text('Open in Maps'), findsOneWidget);
     });
 
-    testWidgets('unknown cost shows Fare unavailable', (tester) async {
+    testWidgets('unknown cost omits fare pill (blank)', (tester) async {
       final provider = CommuteProvider()
         ..status = CommuteStatus.success
         ..plan = _multimodalPlan(costStatus: ValueStatus.unknown, cost: 0)
@@ -222,7 +222,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(const ResultPage(apiBaseUrl: 'http://test'), provider),
       );
-      expect(find.textContaining('Fare unavailable'), findsWidgets);
+      expect(find.textContaining('Fare unavailable'), findsNothing);
       expect(find.text('₹0'), findsNothing);
       expect(find.text('Free'), findsNothing);
     });
@@ -460,7 +460,7 @@ void main() {
         find.byKey(const Key('maps_handoff')),
         200,
       );
-      expect(find.text('Take this journey'), findsOneWidget);
+      expect(find.text('Open in Maps'), findsOneWidget);
       expect(find.byType(RouteMap), findsNothing);
     });
   });

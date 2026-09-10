@@ -17,10 +17,17 @@ class AppConfig {
   static const String androidEmulatorDefaultBaseUrl = 'http://10.0.2.2:8000';
 
   /// Value for the API base URL field at startup.
-  /// dart-define always wins; otherwise Cloud Run demo default.
+  /// dart-define always wins.
+  /// Android debug defaults to the emulator→host loopback: many emulators
+  /// cannot resolve Cloud Run DNS (host curl works, app times out).
   static String get initialApiBaseUrl {
     final defined = apiBaseUrlFromDefine.trim();
     if (defined.isNotEmpty) return defined;
+    if (!kIsWeb &&
+        kDebugMode &&
+        defaultTargetPlatform == TargetPlatform.android) {
+      return androidEmulatorDefaultBaseUrl;
+    }
     return cloudRunDefaultBaseUrl;
   }
 

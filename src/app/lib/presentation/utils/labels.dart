@@ -103,6 +103,21 @@ String formatCostLabel({
   return '₹${cost.toStringAsFixed(0)}';
 }
 
+/// Same as [formatCostLabel], but returns null when fare is unknown (blank UI).
+String? formatCostLabelOrBlank({
+  required double cost,
+  required bool known,
+  double? partialKnownCostInr,
+}) {
+  final label = formatCostLabel(
+    cost: cost,
+    known: known,
+    partialKnownCostInr: partialKnownCostInr,
+  );
+  if (label == 'Fare unavailable') return null;
+  return label;
+}
+
 /// Present duration; unknown values are never shown as exact guarantees.
 String formatDurationLabel({
   required double travelTimeMinutes,
@@ -115,6 +130,19 @@ String formatDurationLabel({
     return 'Time unavailable';
   }
   return '${travelTimeMinutes.toStringAsFixed(0)} min';
+}
+
+/// Same as [formatDurationLabel], but returns null when time is unknown (blank UI).
+String? formatDurationLabelOrBlank({
+  required double travelTimeMinutes,
+  required bool known,
+}) {
+  final label = formatDurationLabel(
+    travelTimeMinutes: travelTimeMinutes,
+    known: known,
+  );
+  if (label == 'Time unavailable') return null;
+  return label;
 }
 
 String agentExplanationOrFallback(String? explanation) {

@@ -38,23 +38,34 @@ String modeEmoji(String mode) {
 
 String modeChip(String mode) => '${modeEmoji(mode)} ${modeLabel(mode)}';
 
-/// Dynamic mode sequence from backend mode tokens (not hardcoded combinations).
-String modeSequenceFromModes(Iterable<String> modes) {
-  final parts = modes
+/// Ordered backend mode tokens for UI (presentation only).
+List<String> modeTokensFromModes(Iterable<String> modes) {
+  return modes
       .map((m) => m.trim())
       .where((m) => m.isNotEmpty)
-      .map(modeChip)
-      .toList();
+      .toList(growable: false);
+}
+
+List<String> modeTokensFromSignature(String signature) {
+  if (signature.trim().isEmpty) return const [];
+  return modeTokensFromModes(
+    signature
+        .split(RegExp(r'\s*→\s*|\s*>\s*|\s*\|\s*|\s*,\s*'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty),
+  );
+}
+
+/// Dynamic mode sequence from backend mode tokens (not hardcoded combinations).
+String modeSequenceFromModes(Iterable<String> modes) {
+  final parts = modeTokensFromModes(modes).map(modeChip).toList();
   if (parts.isEmpty) return 'Route';
   return parts.join(' → ');
 }
 
 String modeSequenceFromSignature(String signature) {
-  if (signature.trim().isEmpty) return 'Route';
-  final tokens = signature
-      .split(RegExp(r'\s*→\s*|\s*>\s*|\s*\|\s*|\s*,\s*'))
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty);
+  final tokens = modeTokensFromSignature(signature);
+  if (tokens.isEmpty) return 'Route';
   return modeSequenceFromModes(tokens);
 }
 
@@ -81,17 +92,48 @@ String modeSequenceForJourney(RecommendedJourney journey) {
   return 'Route';
 }
 
-String modeSequenceForTopOption(TopJourneyOption option) {
+List<String> modeTokensForTopOption(TopJourneyOption option) {
   if (option.componentModes.isNotEmpty) {
-    return modeSequenceFromModes(option.componentModes);
+    return modeTokensFromModes(option.componentModes);
   }
   if (option.modeSignature.isNotEmpty) {
-    return modeSequenceFromSignature(option.modeSignature);
+    return modeTokensFromSignature(option.modeSignature);
   }
   if (option.diversitySignature.isNotEmpty) {
-    return modeSequenceFromSignature(option.diversitySignature);
+    return modeTokensFromSignature(option.diversitySignature);
   }
-  return modeChip(option.mode);
+  if (option.mode.trim().isEmpty) return const [];
+  return [option.mode];
+}
+
+List<String> modeTokensForRoute(CommuteRoute route) {
+  if (route.componentModes.isNotEmpty) {
+    return modeTokensFromModes(route.componentModes);
+  }
+  if (route.modeSignature.isNotEmpty) {
+    return modeTokensFromSignature(route.modeSignature);
+  }
+  if (route.mode.trim().isEmpty) return const [];
+  return [route.mode];
+}
+
+List<String> modeTokensForJourney(RecommendedJourney journey) {
+  if (journey.modes.isNotEmpty) {
+    return modeTokensFromModes(journey.modes);
+  }
+  if (journey.legs.isNotEmpty) {
+    return modeTokensFromModes(journey.legs.map((l) => l.mode));
+  }
+  if (journey.modeSignature.isNotEmpty) {
+    return modeTokensFromSignature(journey.modeSignature);
+  }
+  return const [];
+}
+
+String modeSequenceForTopOption(TopJourneyOption option) {
+  final tokens = modeTokensForTopOption(option);
+  if (tokens.isEmpty) return 'Route';
+  return modeSequenceFromModes(tokens);
 }
 
 String? legDurationLabel(JourneyLeg leg) {

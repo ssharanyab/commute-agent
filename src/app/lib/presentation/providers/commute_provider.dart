@@ -60,7 +60,7 @@ class CommuteProvider extends ChangeNotifier {
           ? "Couldn't reach Commute Agent."
           : "Couldn't plan this commute";
       errorDetail = e.kind == ApiErrorKind.network
-          ? 'Check your connection and try again.'
+          ? 'Could not connect to $baseUrl\n${e.message}'
           : e.message;
       notifyListeners();
       return false;
@@ -68,7 +68,7 @@ class CommuteProvider extends ChangeNotifier {
       plan = null;
       status = CommuteStatus.error;
       errorTitle = "Couldn't reach Commute Agent.";
-      errorDetail = 'Check your connection and try again.';
+      errorDetail = 'Could not connect to $baseUrl\n$e';
       notifyListeners();
       return false;
     } finally {

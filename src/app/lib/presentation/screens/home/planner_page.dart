@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,8 +9,12 @@ import '../../../data/places_api_client.dart';
 import '../../../domain/entities/commute_request.dart';
 import '../../../domain/entities/user_preferences.dart';
 import '../../providers/commute_provider.dart';
+import '../../theme/planner_tokens.dart';
 import '../../widgets/commute_widgets.dart';
 import '../../widgets/place_autocomplete_field.dart';
+import '../../widgets/planner/control_row.dart';
+import '../../widgets/planner/preference_chip.dart';
+import '../../widgets/planner/route_composer_card.dart';
 import '../results/result_page.dart';
 
 class PlannerPage extends StatefulWidget {
@@ -21,6 +26,9 @@ class PlannerPage extends StatefulWidget {
 
 class _PlannerPageState extends State<PlannerPage> {
   final _formKey = GlobalKey<FormState>();
+  final _originFieldKey = GlobalKey<PlaceAutocompleteFieldState>();
+  final _destinationFieldKey = GlobalKey<PlaceAutocompleteFieldState>();
+
   late final TextEditingController _baseUrl;
   late final TextEditingController _origin;
   late final TextEditingController _destination;
@@ -31,10 +39,10 @@ class _PlannerPageState extends State<PlannerPage> {
   ResolvedPlace? _destinationPlace;
 
   OptimizationProfile _profile = OptimizationProfile.balanced;
-  bool _avoidHeavyTraffic = true;
   bool _excludeCabs = false;
   bool _excludeAutos = false;
   bool _limitWalking = false;
+  bool _moreControlsOpen = true;
 
   @override
   void initState() {
@@ -58,6 +66,100 @@ class _PlannerPageState extends State<PlannerPage> {
     _departure.dispose();
     _maxWalk.dispose();
     super.dispose();
+  }
+
+  String _preferenceIcon(OptimizationProfile p) {
+    switch (p) {
+      case OptimizationProfile.balanced:
+        return '✨';
+      case OptimizationProfile.fastest:
+        return '⚡';
+      case OptimizationProfile.cheapest:
+        return '₹';
+      case OptimizationProfile.lessWalking:
+        return '🚶';
+      case OptimizationProfile.moreReliable:
+        return '🛡';
+      case OptimizationProfile.lowerTraffic:
+        return '🚦';
+    }
+  }
+
+  void _swapRouteEnds() {
+    final originText = _origin.text;
+    final destinationText = _destination.text;
+    final originPlace = _originPlace;
+    final destinationPlace = _destinationPlace;
+    _originFieldKey.currentState
+        ?.bindSelection(destinationText, destinationPlace);
+    _destinationFieldKey.currentState
+        ?.bindSelection(originText, originPlace);
+    setState(() {
+      _originPlace = destinationPlace;
+      _destinationPlace = originPlace;
+    });
+  }
+
+  Future<void> _editDeparture() async {
+    DateTime initial;
+    try {
+      initial = BengaluruDeparture.parseIstWallClock(_departure.text);
+    } catch (_) {
+      initial = BengaluruDeparture.nowIst().add(const Duration(hours: 1));
+    }
+    var pending = initial;
+
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) {
+        return Container(
+          height: 320,
+          color: CupertinoColors.systemBackground.resolveFrom(ctx),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    CupertinoButton(
+                      onPressed: () {
+                        setState(() {
+                          _departure.text =
+                              BengaluruDeparture.defaultDisplay(
+                            ahead: const Duration(minutes: 2),
+                          );
+                        });
+                        Navigator.of(ctx).pop();
+                      },
+                      child: const Text('Leave now'),
+                    ),
+                    const Spacer(),
+                    CupertinoButton(
+                      onPressed: () {
+                        setState(() {
+                          _departure.text =
+                              BengaluruDeparture.formatIstDisplay(pending);
+                        });
+                        Navigator.of(ctx).pop();
+                      },
+                      child: const Text('Done'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.dateAndTime,
+                  initialDateTime: initial,
+                  use24hFormat: true,
+                  onDateTimeChanged: (v) => pending = v,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _plan() async {
@@ -86,8 +188,12 @@ class _PlannerPageState extends State<PlannerPage> {
     final maxWalk =
         _limitWalking ? double.tryParse(_maxWalk.text.trim()) : null;
 
+    // "Lower traffic" preference carries avoidHeavyTraffic intent (UI switch removed).
+    final avoidHeavyTraffic =
+        _profile == OptimizationProfile.lowerTraffic;
+
     final prefs = _profile.toWeights(
-      avoidHeavyTraffic: _avoidHeavyTraffic,
+      avoidHeavyTraffic: avoidHeavyTraffic,
       maxWalkingMinutes: maxWalk,
       excludedModes: excluded,
     );
@@ -118,250 +224,118 @@ class _PlannerPageState extends State<PlannerPage> {
     final provider = context.watch<CommuteProvider>();
     final loading = provider.isLoading;
     final scheme = Theme.of(context).colorScheme;
-    final hasInput =
-        _origin.text.trim().isNotEmpty || _destination.text.trim().isNotEmpty;
+    final canSubmit = _origin.text.trim().isNotEmpty &&
+        _destination.text.trim().isNotEmpty;
+    final base = AppConfig.normalizeBaseUrl(_baseUrl.text);
 
     return Scaffold(
+      backgroundColor: PlannerTokens.background(scheme),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
-              children: [
-                Text(
-                  'Commute Agent',
-                  key: const Key('planner_header'),
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.6,
-                      ),
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  PlannerTokens.spaceLg,
+                  PlannerTokens.spaceMd,
+                  PlannerTokens.spaceLg,
+                  PlannerTokens.spaceXl,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Your commute, intelligently composed.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: 24),
-                if (!hasInput && !loading && provider.errorTitle == null)
-                  _EmptyPrompt(scheme: scheme),
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      PlaceAutocompleteField(
-                        key: const Key('origin_place_field'),
-                        controller: _origin,
-                        baseUrl: AppConfig.normalizeBaseUrl(_baseUrl.text),
-                        label: 'Origin',
-                        hint: 'Where are you starting?',
-                        prefixIcon: Icons.trip_origin,
-                        onPlaceResolved: (place) =>
-                            setState(() => _originPlace = place),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      PlaceAutocompleteField(
-                        key: const Key('destination_place_field'),
-                        controller: _destination,
-                        baseUrl: AppConfig.normalizeBaseUrl(_baseUrl.text),
-                        label: 'Destination',
-                        hint: 'Search a Bengaluru place',
-                        prefixIcon: Icons.flag_outlined,
-                        onPlaceResolved: (place) =>
-                            setState(() => _destinationPlace = place),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      if (_originPlace != null || _destinationPlace != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            'Place selected — coordinates will be sent with your plan.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _departure,
-                        decoration: const InputDecoration(
-                          labelText: 'Departure (Bengaluru / IST)',
-                          hintText: 'yyyy-MM-dd HH:mm',
-                          prefixIcon: Icon(Icons.schedule),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Preference',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: OptimizationProfile.values.map((p) {
-                          final selected = _profile == p;
-                          return ChoiceChip(
-                            label: Text(p.label),
-                            selected: selected,
-                            onSelected: (_) => setState(() => _profile = p),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Avoid',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      SwitchListTile(
-                        key: const Key('exclude_cab'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Avoid cab'),
-                        value: _excludeCabs,
-                        onChanged: (v) => setState(() => _excludeCabs = v),
-                      ),
-                      SwitchListTile(
-                        key: const Key('exclude_auto'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Avoid auto'),
-                        value: _excludeAutos,
-                        onChanged: (v) => setState(() => _excludeAutos = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Prefer lower traffic'),
-                        value: _avoidHeavyTraffic,
-                        onChanged: (v) =>
-                            setState(() => _avoidHeavyTraffic = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Limit walking'),
-                        value: _limitWalking,
-                        onChanged: (v) => setState(() => _limitWalking = v),
-                      ),
-                      if (_limitWalking) ...[
-                        TextFormField(
-                          controller: _maxWalk,
-                          decoration: const InputDecoration(
-                            labelText: 'Max walking (minutes)',
-                            prefixIcon: Icon(Icons.directions_walk),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      Theme(
-                        data: Theme.of(context).copyWith(
-                          dividerColor: Colors.transparent,
-                        ),
-                        child: ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: Text(
-                            'Advanced',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          children: [
-                            TextFormField(
-                              controller: _baseUrl,
-                              decoration: const InputDecoration(
-                                labelText: 'API base URL',
-                                helperText:
-                                    'Default: Cloud Run. If Places times out on '
-                                    'emulator/device, switch to Local below '
-                                    '(uvicorn on host :8000).',
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                ActionChip(
-                                  key: const Key('api_base_cloud'),
-                                  label: const Text('Cloud Run'),
-                                  onPressed: () {
-                                    _baseUrl.text =
-                                        AppConfig.cloudRunDefaultBaseUrl;
-                                  },
-                                ),
-                                ActionChip(
-                                  key: const Key('api_base_local'),
-                                  label: const Text('Local (this device)'),
-                                  onPressed: () {
-                                    _baseUrl.text = AppConfig
-                                        .defaultLocalBaseUrlForPlatform();
-                                  },
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton(
-                        key: const Key('plan_cta'),
-                        onPressed: loading ? null : _plan,
-                        child: loading
-                            ? const Column(
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      SizedBox(width: 12),
-                                      Flexible(
-                                        child: Text(
-                                          'Planning your commute…',
-                                          key: Key('planning_loading'),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 6),
-                                  Text(
-                                    'Comparing travel options for you.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : const Text('Plan my commute'),
-                      ),
-                      if (provider.errorTitle != null) ...[
-                        const SizedBox(height: 16),
-                        PlanErrorPanel(
-                          title: provider.errorTitle!,
-                          detail: provider.errorDetail ?? '',
-                          onRetry: loading ? null : _plan,
-                        ),
-                      ],
-                    ],
+                children: [
+                  Text(
+                    'Commute Agent',
+                    key: const Key('planner_header'),
+                    style: PlannerTokens.brandTitle(context),
                   ),
-                ),
-              ],
+                  const SizedBox(height: PlannerTokens.spaceXs),
+                  Text(
+                    'Plan your journey',
+                    style: PlannerTokens.heroTitle(context),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "I'll compose the best way to get there.",
+                    style: PlannerTokens.supporting(context),
+                  ),
+                  const SizedBox(height: PlannerTokens.spaceLg),
+                  RouteComposerCard(
+                    originKey: _originFieldKey,
+                    destinationKey: _destinationFieldKey,
+                    originController: _origin,
+                    destinationController: _destination,
+                    baseUrl: base,
+                    onOriginResolved: (place) =>
+                        setState(() => _originPlace = place),
+                    onDestinationResolved: (place) =>
+                        setState(() => _destinationPlace = place),
+                    onSwap: _swapRouteEnds,
+                  ),
+                  if (_originPlace != null || _destinationPlace != null) ...[
+                    const SizedBox(height: PlannerTokens.spaceXs),
+                    Text(
+                      'Place selected — coordinates will be sent with your plan.',
+                      style: PlannerTokens.rowSubtitle(context),
+                    ),
+                  ],
+                  const SizedBox(height: PlannerTokens.spaceMd),
+                  _DepartureRow(
+                    value: _departure.text,
+                    onTap: _editDeparture,
+                  ),
+                  const SizedBox(height: PlannerTokens.spaceLg),
+                  Text(
+                    'How should I optimize?',
+                    style: PlannerTokens.sectionLabel(context),
+                  ),
+                  const SizedBox(height: PlannerTokens.spaceSm),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: OptimizationProfile.values.map((p) {
+                      final selected = _profile == p;
+                      return PreferenceChip(
+                        key: Key('pref_${p.name}'),
+                        label: p.label,
+                        icon: _preferenceIcon(p),
+                        selected: selected,
+                        onSelected: () => setState(() => _profile = p),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: PlannerTokens.spaceLg),
+                  _MoreControlsSection(
+                    open: _moreControlsOpen,
+                    onToggle: () => setState(
+                      () => _moreControlsOpen = !_moreControlsOpen,
+                    ),
+                    excludeCabs: _excludeCabs,
+                    excludeAutos: _excludeAutos,
+                    limitWalking: _limitWalking,
+                    maxWalkController: _maxWalk,
+                    onExcludeCabs: (v) => setState(() => _excludeCabs = v),
+                    onExcludeAutos: (v) => setState(() => _excludeAutos = v),
+                    onLimitWalking: (v) => setState(() => _limitWalking = v),
+                    baseUrlController: _baseUrl,
+                  ),
+                  const SizedBox(height: PlannerTokens.spaceLg),
+                  _ComposeButton(
+                    loading: loading,
+                    enabled: canSubmit,
+                    onPressed: _plan,
+                  ),
+                  if (provider.errorTitle != null) ...[
+                    const SizedBox(height: PlannerTokens.spaceMd),
+                    PlanErrorPanel(
+                      key: const Key('planner_error_panel'),
+                      title: provider.errorTitle!,
+                      detail: provider.errorDetail ?? '',
+                      onRetry: loading || !canSubmit ? null : _plan,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
@@ -370,41 +344,289 @@ class _PlannerPageState extends State<PlannerPage> {
   }
 }
 
-class _EmptyPrompt extends StatelessWidget {
-  const _EmptyPrompt({required this.scheme});
-  final ColorScheme scheme;
+class _DepartureRow extends StatelessWidget {
+  const _DepartureRow({required this.value, required this.onTap});
+
+  final String value;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Where are you heading?',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+    final scheme = Theme.of(context).colorScheme;
+    final display = value.trim().isEmpty ? 'Leave now' : value;
+    return Semantics(
+      button: true,
+      label: 'Departure $display',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const Key('departure_row'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(PlannerTokens.radiusRow),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: PlannerTokens.surface(scheme),
+              borderRadius: BorderRadius.circular(PlannerTokens.radiusRow),
+              border: Border.all(color: PlannerTokens.hairline(scheme)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    CupertinoIcons.clock,
+                    size: 20,
+                    color: scheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Departure',
+                          style: PlannerTokens.rowSubtitle(context),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          display,
+                          style: PlannerTokens.rowTitle(context),
+                        ),
+                      ],
                     ),
+                  ),
+                  Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 18,
+                    color: PlannerTokens.mutedText(scheme),
+                  ),
+                ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                "Enter your origin and destination — Commute Agent will "
-                'compose the best way to get there.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MoreControlsSection extends StatelessWidget {
+  const _MoreControlsSection({
+    required this.open,
+    required this.onToggle,
+    required this.excludeCabs,
+    required this.excludeAutos,
+    required this.limitWalking,
+    required this.maxWalkController,
+    required this.onExcludeCabs,
+    required this.onExcludeAutos,
+    required this.onLimitWalking,
+    required this.baseUrlController,
+  });
+
+  final bool open;
+  final VoidCallback onToggle;
+  final bool excludeCabs;
+  final bool excludeAutos;
+  final bool limitWalking;
+  final TextEditingController maxWalkController;
+  final ValueChanged<bool> onExcludeCabs;
+  final ValueChanged<bool> onExcludeAutos;
+  final ValueChanged<bool> onLimitWalking;
+  final TextEditingController baseUrlController;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: PlannerTokens.surface(scheme).withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(PlannerTokens.radiusCard),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            key: const Key('more_controls_toggle'),
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(PlannerTokens.radiusCard),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'More control',
+                      style: PlannerTokens.rowTitle(context),
+                    ),
+                  ),
+                  Icon(
+                    open
+                        ? CupertinoIcons.chevron_up
+                        : CupertinoIcons.chevron_down,
+                    size: 18,
+                    color: PlannerTokens.mutedText(scheme),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ControlRow(
+                    key: const Key('exclude_cab'),
+                    title: 'Avoid cab',
+                    subtitle: 'Skip taxi and rideshare options',
+                    value: excludeCabs,
+                    onChanged: onExcludeCabs,
+                  ),
+                  ControlRow(
+                    key: const Key('exclude_auto'),
+                    title: 'Avoid auto',
+                    subtitle: 'Skip auto-rickshaw options',
+                    value: excludeAutos,
+                    onChanged: onExcludeAutos,
+                  ),
+                  ControlRow(
+                    title: 'Limit walking',
+                    subtitle: 'Cap walking time when possible',
+                    value: limitWalking,
+                    onChanged: onLimitWalking,
+                  ),
+                  if (limitWalking) ...[
+                    const SizedBox(height: 4),
+                    TextFormField(
+                      controller: maxWalkController,
+                      decoration: InputDecoration(
+                        labelText: 'Max walking (minutes)',
+                        filled: true,
+                        fillColor: PlannerTokens.surfaceStrong(scheme),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ],
+                  const SizedBox(height: PlannerTokens.spaceSm),
+                  Theme(
+                    data: Theme.of(context).copyWith(
+                      dividerColor: Colors.transparent,
+                    ),
+                    child: ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      title: Text(
+                        'Advanced',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      children: [
+                        TextFormField(
+                          controller: baseUrlController,
+                          decoration: const InputDecoration(
+                            labelText: 'API base URL',
+                            helperText:
+                                'Android emulator defaults to Local (10.0.2.2). '
+                                'Cloud Run needs working emulator DNS — if Places '
+                                'times out, stay on Local (uvicorn on host :8000).',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ActionChip(
+                              key: const Key('api_base_cloud'),
+                              label: const Text('Cloud Run'),
+                              onPressed: () {
+                                baseUrlController.text =
+                                    AppConfig.cloudRunDefaultBaseUrl;
+                              },
+                            ),
+                            ActionChip(
+                              key: const Key('api_base_local'),
+                              label: const Text('Local (this device)'),
+                              onPressed: () {
+                                baseUrlController.text = AppConfig
+                                    .defaultLocalBaseUrlForPlatform();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComposeButton extends StatelessWidget {
+  const _ComposeButton({
+    required this.loading,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final bool loading;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: FilledButton(
+        key: const Key('plan_cta'),
+        onPressed: (enabled && !loading) ? onPressed : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          disabledBackgroundColor:
+              scheme.primary.withValues(alpha: 0.35),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(PlannerTokens.radiusButton),
+          ),
+          elevation: 0,
+          textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+              ),
+        ),
+        child: loading
+            ? const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      'Planning your commute…',
+                      key: Key('planning_loading'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            : const Text('Compose commute'),
       ),
     );
   }

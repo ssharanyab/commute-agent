@@ -10,11 +10,15 @@ import '../../../domain/entities/journey.dart';
 import '../../../domain/entities/replan_result.dart';
 import '../../../domain/entities/top_journey.dart';
 import '../../providers/commute_provider.dart';
+import '../../theme/result_tokens.dart';
 import '../../utils/labels.dart';
 import '../../utils/mode_presentation.dart';
 import '../../utils/user_facing_explanation.dart';
 import '../../widgets/commute_widgets.dart';
 import '../../widgets/journey_timeline.dart';
+import '../../widgets/result/alternative_card.dart';
+import '../../widgets/result/recommendation_card.dart';
+import '../../widgets/result/result_bottom_actions.dart';
 
 class ResultPage extends StatefulWidget {
   const ResultPage({super.key, required this.apiBaseUrl});
@@ -119,9 +123,18 @@ class _ResultPageState extends State<ResultPage> {
   Widget build(BuildContext context) {
     final provider = context.watch<CommuteProvider>();
     final plan = provider.plan;
+    final scheme = Theme.of(context).colorScheme;
+
     if (plan == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Your commute')),
+        backgroundColor: ResultTokens.background(scheme),
+        appBar: AppBar(
+          title: const Text('Your commute'),
+          centerTitle: false,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: ResultTokens.background(scheme),
+        ),
         body: const Center(child: Text('No plan available.')),
       );
     }
@@ -159,179 +172,196 @@ class _ResultPageState extends State<ResultPage> {
     final travelMode = selected != null
         ? mapsTravelModeForTopOption(selected)
         : mapsTravelModeFor(view.route, view.journey);
-    final useTop5 = plan.topSelection != null &&
-        !(plan.topSelection!.isEmpty);
+    final useTop5 = plan.topSelection != null && !(plan.topSelection!.isEmpty);
+    final tripContext = (origin.isNotEmpty && destination.isNotEmpty)
+        ? '$origin → $destination'
+        : null;
+
+    final recommendedModes = recommendedOption != null
+        ? modeTokensForTopOption(recommendedOption)
+        : (view.journey != null
+            ? modeTokensForJourney(view.journey!)
+            : (view.route != null
+                ? modeTokensForRoute(view.route!)
+                : const <String>[]));
 
     return Scaffold(
+      backgroundColor: ResultTokens.background(scheme),
       appBar: AppBar(
-        title: const Text('Your commute'),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: ResultTokens.background(scheme),
         centerTitle: false,
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-            children: [
-              if (replan != null) ...[
-                _ReplanBanner(replan: replan),
-                const SizedBox(height: 16),
-              ],
-              if (recommendedOption != null || view.route != null)
-                _HeroRecommendation(
-                  option: recommendedOption,
-                  route: view.route,
-                  journey: view.journey,
-                  sequence: recommendedOption != null
-                      ? modeSequenceForTopOption(recommendedOption)
-                      : view.sequence,
-                  selected: selected != null &&
-                      recommendedOption != null &&
-                      selected.identity == recommendedOption.identity,
-                  onSelect: recommendedOption == null
-                      ? null
-                      : () {
-                          final id = recommendedOption!.identity;
-                          setState(() => _selectedIdentity = id);
-                        },
-                  whyReason: _whyReason(
-                    plan: plan,
-                    option: recommendedOption,
-                    useTop5: useTop5,
-                  ),
-                  whyBullets: useTop5
-                      ? const <String>[]
-                      : explanationForPlan(plan).reasons,
-                )
-              else
-                const _EmptyRecommendation(),
-              if (view.route?.historicalSignal != null) ...[
-                const SizedBox(height: 12),
-                _HistoricalCard(
-                  signal: view.route!.historicalSignal!,
-                  currentMinutes: view.route!.travelTimeMinutes,
-                  durationKnown: view.route!.hasKnownDuration,
-                ),
-              ],
-              if ((selected?.steps.isNotEmpty ?? false) ||
-                  (view.journey != null &&
-                      (view.journey!.steps.isNotEmpty ||
-                          view.journey!.legs.isNotEmpty))) ...[
-                const SizedBox(height: 24),
-                Text(
-                  'Your journey',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                JourneyTimeline(
-                  journey: _journeyForSelection(
-                    plan: plan,
-                    selected: selected,
-                    fallback: view.journey,
-                  ),
-                  steps: selected?.steps ?? const [],
-                ),
-              ],
-              if (alternatives.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Text(
-                  'Other ways to go',
-                  key: const Key('other_ways_heading'),
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                ...alternatives.map(
-                  (alt) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _TopAlternativeCard(
-                      option: alt,
-                      selected: selected?.identity == alt.identity,
-                      onTap: () => setState(() => _selectedIdentity = alt.identity),
-                    ),
-                  ),
-                ),
-              ] else if (!useTop5 && plan.routeCategories.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Text(
-                  'Other ways to go',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                ...visibleAlternatives(
-                  categories: plan.routeCategories,
-                  recommended: plan.recommendation,
-                ).map(
-                  (alt) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _LegacyAlternativeTile(
-                      title: alt.title,
-                      route: alt.route,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-              FilledButton(
-                key: const Key('maps_handoff'),
-                onPressed: (origin.isEmpty || destination.isEmpty)
-                    ? null
-                    : () => _openMapsHandoff(
-                          context: context,
-                          origin: origin,
-                          destination: destination,
-                          travelMode: travelMode,
-                        ),
-                child: const Text('Take this journey'),
-              ),
-              const SizedBox(height: 10),
+        titleSpacing: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Your commute',
+              style: ResultTokens.pageTitle(context),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (tripContext != null) ...[
+              const SizedBox(height: 2),
               Text(
-                'Opens Google Maps for navigation. Commute Agent remains '
-                'your decision — Maps helps you get there.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                tripContext,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: ResultTokens.tripContext(context),
               ),
-              const SizedBox(height: 16),
-              FilledButton.tonal(
-                key: const Key('replan_button'),
-                onPressed:
-                    replanLoading ? null : () => _openReplanSheet(context),
-                child: replanLoading
-                    ? const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 10),
-                          Text('Updating your commute…'),
-                        ],
-                      )
-                    : const Text('Replan my commute'),
-              ),
-              if (provider.replanError != null) ...[
-                const SizedBox(height: 12),
-                ErrorBanner(message: provider.replanError!),
-              ],
-              if (view.route?.googlePolyline != null ||
-                  view.route?.googleRouteToken != null)
-                const SizedBox.shrink(
-                  key: Key('nav_payload_retained'),
-                ),
             ],
-          ),
+          ],
         ),
+        toolbarHeight: tripContext != null ? 72 : kToolbarHeight,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    ResultTokens.spaceXl,
+                    ResultTokens.spaceSm,
+                    ResultTokens.spaceXl,
+                    ResultTokens.spaceXxl,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                    if (replan != null) ...[
+                      _ReplanBanner(replan: replan),
+                      const SizedBox(height: ResultTokens.spaceLg),
+                    ],
+                    if (recommendedOption != null || view.route != null)
+                      RecommendationCard(
+                        option: recommendedOption,
+                        route: view.route,
+                        journey: view.journey,
+                        modes: recommendedModes,
+                        sequenceFallback: recommendedOption != null
+                            ? modeSequenceForTopOption(recommendedOption)
+                            : view.sequence,
+                        selected: selected != null &&
+                            recommendedOption != null &&
+                            selected.identity == recommendedOption.identity,
+                        onSelect: recommendedOption == null
+                            ? null
+                            : () {
+                                final id = recommendedOption!.identity;
+                                setState(() => _selectedIdentity = id);
+                              },
+                        whyReason: _whyReason(
+                          plan: plan,
+                          option: recommendedOption,
+                          useTop5: useTop5,
+                        ),
+                        whyBullets: useTop5
+                            ? const <String>[]
+                            : explanationForPlan(plan).reasons,
+                      )
+                    else
+                      const _EmptyRecommendation(),
+                    if (view.route?.historicalSignal != null) ...[
+                      const SizedBox(height: ResultTokens.spaceMd),
+                      _HistoricalCard(
+                        signal: view.route!.historicalSignal!,
+                        currentMinutes: view.route!.travelTimeMinutes,
+                        durationKnown: view.route!.hasKnownDuration,
+                      ),
+                    ],
+                    if ((selected?.steps.isNotEmpty ?? false) ||
+                        (view.journey != null &&
+                            (view.journey!.steps.isNotEmpty ||
+                                view.journey!.legs.isNotEmpty))) ...[
+                      const SizedBox(height: ResultTokens.spaceXxl),
+                      Text(
+                        'Your journey',
+                        style: ResultTokens.sectionHeader(context),
+                      ),
+                      const SizedBox(height: ResultTokens.spaceMd),
+                      JourneyTimeline(
+                        journey: _journeyForSelection(
+                          plan: plan,
+                          selected: selected,
+                          fallback: view.journey,
+                        ),
+                        steps: selected?.steps ?? const [],
+                      ),
+                    ],
+                    if (alternatives.isNotEmpty) ...[
+                      const SizedBox(height: ResultTokens.spaceXxl),
+                      Text(
+                        'Other ways to go',
+                        key: const Key('other_ways_heading'),
+                        style: ResultTokens.sectionHeader(context),
+                      ),
+                      const SizedBox(height: ResultTokens.spaceMd),
+                      ...alternatives.map(
+                        (alt) => Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: ResultTokens.spaceMd,
+                          ),
+                          child: TopAlternativeCard(
+                            option: alt,
+                            selected: selected?.identity == alt.identity,
+                            onTap: () => setState(
+                              () => _selectedIdentity = alt.identity,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ] else if (!useTop5 && plan.routeCategories.isNotEmpty) ...[
+                      const SizedBox(height: ResultTokens.spaceXxl),
+                      Text(
+                        'Other ways to go',
+                        style: ResultTokens.sectionHeader(context),
+                      ),
+                      const SizedBox(height: ResultTokens.spaceMd),
+                      ...visibleAlternatives(
+                        categories: plan.routeCategories,
+                        recommended: plan.recommendation,
+                      ).map(
+                        (alt) => Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: ResultTokens.spaceMd,
+                          ),
+                          child: LegacyAlternativeCard(
+                            title: alt.title,
+                            route: alt.route,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (provider.replanError != null) ...[
+                      const SizedBox(height: ResultTokens.spaceLg),
+                      ErrorBanner(message: provider.replanError!),
+                    ],
+                    if (view.route?.googlePolyline != null ||
+                        view.route?.googleRouteToken != null)
+                      const SizedBox.shrink(
+                        key: Key('nav_payload_retained'),
+                      ),
+                  ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          ResultBottomActions(
+            mapsEnabled: origin.isNotEmpty && destination.isNotEmpty,
+            replanLoading: replanLoading,
+            onOpenMaps: () => _openMapsHandoff(
+              context: context,
+              origin: origin,
+              destination: destination,
+              travelMode: travelMode,
+            ),
+            onReplan: () => _openReplanSheet(context),
+          ),
+        ],
       ),
     );
   }
@@ -487,320 +517,19 @@ class _EmptyRecommendation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ResultTokens.surfaceMuted(scheme),
+        borderRadius: BorderRadius.circular(ResultTokens.radiusCard),
+        border: Border.all(color: ResultTokens.hairline(scheme)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(ResultTokens.spaceLg),
         child: Text(
           "We couldn't find a suitable way to make this trip with your "
           'current preferences.',
           style: Theme.of(context).textTheme.titleMedium,
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroRecommendation extends StatelessWidget {
-  const _HeroRecommendation({
-    required this.option,
-    required this.route,
-    required this.journey,
-    required this.sequence,
-    required this.selected,
-    required this.onSelect,
-    required this.whyReason,
-    this.whyBullets = const [],
-  });
-
-  final TopJourneyOption? option;
-  final CommuteRoute? route;
-  final RecommendedJourney? journey;
-  final String sequence;
-  final bool selected;
-  final VoidCallback? onSelect;
-  final String whyReason;
-  final List<String> whyBullets;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final durationText = option != null
-        ? formatDurationLabel(
-            travelTimeMinutes: option!.duration ?? 0,
-            known: option!.hasKnownDuration,
-          )
-        : formatDurationLabel(
-            travelTimeMinutes: route?.travelTimeMinutes ?? 0,
-            known: route?.hasKnownDuration ?? false,
-          );
-    final costText = option != null
-        ? formatCostLabel(
-            cost: option!.cost ?? 0,
-            known: option!.hasKnownCost,
-          )
-        : formatCostLabel(
-            cost: route?.cost ?? 0,
-            known: route?.hasKnownCost ?? false,
-            partialKnownCostInr: route?.partialKnownCostInr,
-          );
-
-    final walkText = option != null
-        ? walkingMetricLabel(
-            option!.hasKnownWalking ? option!.walkingDistanceMeters : null,
-          )
-        : walkingSummary(
-            walkingMinutes: route?.walkingMinutes ?? 0,
-            walkingMeters: journey?.walkingDistanceMeters ??
-                ((route?.accessWalkingMeters ?? 0) +
-                    (route?.transferWalkingMeters ?? 0) +
-                    (route?.egressWalkingMeters ?? 0)),
-          );
-
-    final transfers = option?.transfers ??
-        journey?.transferCount ??
-        route?.transfers ??
-        0;
-    final transferText = option != null
-        ? transferMetricLabel(transfers)
-        : transferSummary(transfers);
-
-    final metrics = <String>[
-      durationText,
-      costText,
-      if (walkText != null && walkText.isNotEmpty) walkText,
-      if (transferText != null) transferText,
-    ];
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: const Key('hero_recommendation'),
-        borderRadius: BorderRadius.circular(16),
-        onTap: onSelect,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: scheme.primaryContainer.withValues(alpha: 0.45),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected ? scheme.primary : Colors.transparent,
-              width: selected ? 2 : 0,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Best for you',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  sequence,
-                  key: const Key('mode_sequence'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        height: 1.3,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  metrics.join(' · '),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Why this?',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  whyReason,
-                  key: const Key('why_summary'),
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (whyBullets.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  ...whyBullets.map(
-                    (r) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.check_circle_outline,
-                            size: 18,
-                            color: scheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(r)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TopAlternativeCard extends StatelessWidget {
-  const _TopAlternativeCard({
-    required this.option,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final TopJourneyOption option;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final durationText = formatDurationLabel(
-      travelTimeMinutes: option.duration ?? 0,
-      known: option.hasKnownDuration,
-    );
-    final costText = formatCostLabel(
-      cost: option.cost ?? 0,
-      known: option.hasKnownCost,
-    );
-    final walkText = walkingMetricLabel(
-      option.hasKnownWalking ? option.walkingDistanceMeters : null,
-    );
-    final transferText = transferMetricLabel(option.transfers);
-    final metrics = <String>[
-      durationText,
-      costText,
-      if (walkText != null) walkText,
-      if (transferText != null) transferText,
-    ];
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: Key('alt_card_${option.identity}'),
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? scheme.primary : Colors.transparent,
-              width: selected ? 2 : 0,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  modeSequenceForTopOption(option),
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  metrics.join(' · '),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  displayReason(option.reason),
-                  key: Key('alt_reason_${option.identity}'),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                ),
-                if (selected) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Selected',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LegacyAlternativeTile extends StatelessWidget {
-  const _LegacyAlternativeTile({required this.title, required this.route});
-
-  final String title;
-  final CommuteRoute route;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: scheme.primary,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              modeSequenceForRoute(route),
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              [
-                formatDurationLabel(
-                  travelTimeMinutes: route.travelTimeMinutes,
-                  known: route.hasKnownDuration,
-                ),
-                formatCostLabel(
-                  cost: route.cost,
-                  known: route.hasKnownCost,
-                  partialKnownCostInr: route.partialKnownCostInr,
-                ),
-              ].join(' · '),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-            ),
-          ],
         ),
       ),
     );
@@ -823,9 +552,7 @@ class _HistoricalCard extends StatelessWidget {
     if (!signal.hasCoverage) {
       return Text(
         'Limited historical data',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+        style: ResultTokens.stepMeta(context),
       );
     }
 
@@ -853,21 +580,23 @@ class _HistoricalCard extends StatelessWidget {
 
     if (lines.isEmpty) return const SizedBox.shrink();
 
-    return Card(
-      elevation: 0,
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ResultTokens.surfaceMuted(scheme),
+        borderRadius: BorderRadius.circular(ResultTokens.radiusRow),
+        border: Border.all(color: ResultTokens.hairline(scheme)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Historical context',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
+            Text('Historical context', style: ResultTokens.sectionHeader(context)),
             const SizedBox(height: 6),
-            ...lines.map((l) => Text(l)),
+            ...lines.map(
+              (l) => Text(l, style: ResultTokens.stepMeta(context)),
+            ),
           ],
         ),
       ),
@@ -888,12 +617,13 @@ class _ReplanBanner extends StatelessWidget {
       key: const Key('replan_banner'),
       decoration: BoxDecoration(
         color: changed
-            ? scheme.tertiaryContainer.withValues(alpha: 0.55)
-            : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(14),
+            ? scheme.tertiaryContainer.withValues(alpha: 0.45)
+            : ResultTokens.surfaceMuted(scheme),
+        borderRadius: BorderRadius.circular(ResultTokens.radiusRow),
+        border: Border.all(color: ResultTokens.hairline(scheme)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(ResultTokens.spaceLg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -909,15 +639,13 @@ class _ReplanBanner extends StatelessWidget {
                   ? 'Commute Agent found a better option based on the '
                       'updated conditions.'
                   : 'Commute Agent checked again — your current plan still fits.',
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: ResultTokens.explanation(context),
             ),
             if (safeReplanExplanation(replan.explanation) != null) ...[
               const SizedBox(height: 8),
               Text(
                 safeReplanExplanation(replan.explanation)!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                style: ResultTokens.stepMeta(context),
               ),
             ],
           ],

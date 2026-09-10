@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -143,34 +144,34 @@ class PlacesApiClient {
     http.Client? httpClient,
     Duration? requestTimeout,
   })  : _ownsClient = httpClient == null,
-        _timeout = requestTimeout ?? const Duration(seconds: 20),
+        _timeout = requestTimeout ?? const Duration(seconds: 15),
         _http = httpClient ?? http.Client();
 
   final bool _ownsClient;
   final Duration _timeout;
   http.Client _http;
 
-  /// Abort any in-flight request (e.g. hung Cloud Run cold-start) so the next
-  /// keystroke is not stuck behind a dead socket.
+  /// Rotate the HTTP client (base-URL change / select / retry). Do **not** call
+  /// this on every keystroke — closing mid-TLS handshake cancels connections
+  /// and shows up as TimeoutException on Android emulators.
   void abortInFlight() {
     if (!_ownsClient) return;
     try {
       _http.close();
     } catch (_) {}
     _http = http.Client();
-    debugPrint('[Places] aborted in-flight HTTP client');
+    debugPrint('[Places] rotated HTTP client');
   }
 
-  /// Best-effort wake of Cloud Run so the first autocomplete is less likely
-  /// to hit the cold-start wall.
+  /// Best-effort wake of backend so the first autocomplete is less likely
+  /// to hit a cold-start / DNS stall.
   Future<void> warmUp(String baseUrl) async {
     final base = baseUrl.trim();
     if (base.isEmpty) return;
     final uri = Uri.parse('$base/health');
     debugPrint('[Places] warmUp GET $uri');
     try {
-      final res =
-          await _http.get(uri).timeout(const Duration(seconds: 12));
+      final res = await _http.get(uri).timeout(const Duration(seconds: 8));
       debugPrint('[Places] warmUp http=${res.statusCode}');
     } catch (e) {
       debugPrint('[Places] warmUp failed (non-fatal): $e');
@@ -193,52 +194,64 @@ class PlacesApiClient {
         'limit': '$limit',
       },
     );
-    final sw = Stopwatch()..start();
-    debugPrint('[Places] GET $uri (timeout=${_timeout.inSeconds}s)');
-    try {
-      final res = await _http.get(uri).timeout(_timeout);
+    Object? lastError;
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      final sw = Stopwatch()..start();
       debugPrint(
-        '[Places] autocomplete http=${res.statusCode} '
-        'bytes=${res.bodyBytes.length} elapsedMs=${sw.elapsedMilliseconds}',
+        '[Places] GET $uri (timeout=${_timeout.inSeconds}s attempt=$attempt)',
       );
-      if (res.statusCode < 200 || res.statusCode >= 300) {
+      try {
+        final res = await _http.get(uri).timeout(_timeout);
         debugPrint(
-          '[Places] autocomplete HTTP error body='
-          '${res.body.length > 400 ? '${res.body.substring(0, 400)}…' : res.body}',
+          '[Places] autocomplete http=${res.statusCode} '
+          'bytes=${res.bodyBytes.length} elapsedMs=${sw.elapsedMilliseconds}',
         );
-        return const [];
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          debugPrint(
+            '[Places] autocomplete HTTP error body='
+            '${res.body.length > 400 ? '${res.body.substring(0, 400)}…' : res.body}',
+          );
+          return const [];
+        }
+        final decoded = jsonDecode(res.body);
+        if (decoded is! Map) {
+          debugPrint('[Places] autocomplete parse: body not a Map');
+          return const [];
+        }
+        final body = Map<String, dynamic>.from(decoded);
+        final ok = body['ok'] == true;
+        final err = body['error'];
+        final configured = body['configured'];
+        final raw = body['suggestions'];
+        final count = raw is List ? raw.length : 0;
+        debugPrint(
+          '[Places] autocomplete ok=$ok error=$err configured=$configured '
+          'suggestions=$count elapsedMs=${sw.elapsedMilliseconds}',
+        );
+        if (!ok || err != null) {
+          debugPrint('[Places] autocomplete backend error detail: $err');
+        }
+        if (raw is! List) return const [];
+        return [
+          for (final item in raw)
+            if (item is Map)
+              PlaceSuggestion.fromJson(Map<String, dynamic>.from(item)),
+        ];
+      } catch (e, st) {
+        lastError = e;
+        debugPrint(
+          '[Places] autocomplete exception after ${sw.elapsedMilliseconds}ms '
+          'attempt=$attempt: $e',
+        );
+        if (!_isRetriableNetworkError(e) || attempt == 2) {
+          debugPrint('[Places] $st');
+          rethrow;
+        }
+        abortInFlight();
+        await Future<void>.delayed(const Duration(milliseconds: 250));
       }
-      final decoded = jsonDecode(res.body);
-      if (decoded is! Map) {
-        debugPrint('[Places] autocomplete parse: body not a Map');
-        return const [];
-      }
-      final body = Map<String, dynamic>.from(decoded);
-      final ok = body['ok'] == true;
-      final err = body['error'];
-      final configured = body['configured'];
-      final raw = body['suggestions'];
-      final count = raw is List ? raw.length : 0;
-      debugPrint(
-        '[Places] autocomplete ok=$ok error=$err configured=$configured '
-        'suggestions=$count elapsedMs=${sw.elapsedMilliseconds}',
-      );
-      if (!ok || err != null) {
-        debugPrint('[Places] autocomplete backend error detail: $err');
-      }
-      if (raw is! List) return const [];
-      return [
-        for (final item in raw)
-          if (item is Map)
-            PlaceSuggestion.fromJson(Map<String, dynamic>.from(item)),
-      ];
-    } catch (e, st) {
-      debugPrint(
-        '[Places] autocomplete exception after ${sw.elapsedMilliseconds}ms: $e',
-      );
-      debugPrint('[Places] $st');
-      rethrow;
     }
+    throw lastError ?? StateError('autocomplete failed');
   }
 
   Future<ResolvedPlace?> details({
@@ -271,5 +284,16 @@ class PlacesApiClient {
     try {
       _http.close();
     } catch (_) {}
+  }
+
+  static bool _isRetriableNetworkError(Object e) {
+    final s = e.toString();
+    return e is TimeoutException ||
+        s.contains('TimeoutException') ||
+        s.contains('SocketException') ||
+        s.contains('ClientException') ||
+        s.contains('Connection attempt cancelled') ||
+        s.contains('Connection closed') ||
+        s.contains('Failed host lookup');
   }
 }

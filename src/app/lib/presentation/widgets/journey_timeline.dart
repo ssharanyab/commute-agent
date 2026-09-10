@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/entities/journey.dart';
 import '../../domain/entities/journey_leg.dart';
 import '../../domain/entities/journey_step.dart';
+import '../theme/result_tokens.dart';
 import '../utils/labels.dart';
 import '../utils/mode_presentation.dart';
 
@@ -44,21 +45,16 @@ class JourneyTimeline extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var i = 0; i < legs.length; i++) ...[
-          _LegTile(
-            leg: legs[i],
+        for (var i = 0; i < legs.length; i++)
+          _TimelineEntry(
             isLast: i == legs.length - 1,
-          ),
-          if (i < legs.length - 1)
-            Padding(
-              padding: const EdgeInsets.only(left: 18, top: 2, bottom: 2),
-              child: Icon(
-                Icons.arrow_downward,
-                size: 16,
-                color: Theme.of(context).colorScheme.outline,
-              ),
+            isEmphasis: i == 0 || i == legs.length - 1,
+            leading: Text(
+              modeEmoji(legs[i].mode),
+              style: const TextStyle(fontSize: 20),
             ),
-        ],
+            child: _LegBody(leg: legs[i], isLast: i == legs.length - 1),
+          ),
       ],
     );
   }
@@ -75,55 +71,120 @@ class _StepsColumn extends StatelessWidget {
       key: const Key('journey_steps_timeline'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var i = 0; i < steps.length; i++) ...[
+        for (var i = 0; i < steps.length; i++)
           if (steps[i].isTransfer)
-            _TransferTile(step: steps[i])
-          else
-            _StepLegTile(step: steps[i]),
-          if (i < steps.length - 1)
-            Padding(
-              padding: const EdgeInsets.only(left: 18, top: 2, bottom: 2),
-              child: Icon(
-                Icons.arrow_downward,
-                size: 16,
-                color: Theme.of(context).colorScheme.outline,
+            _TimelineEntry(
+              isLast: i == steps.length - 1,
+              isEmphasis: false,
+              leading: Icon(
+                Icons.swap_horiz_rounded,
+                size: 18,
+                color: ResultTokens.mutedText(Theme.of(context).colorScheme),
               ),
+              child: _TransferBody(step: steps[i]),
+            )
+          else
+            _TimelineEntry(
+              isLast: i == steps.length - 1,
+              isEmphasis: i == 0 || i == steps.length - 1,
+              leading: Text(
+                modeEmoji(steps[i].mode ?? ''),
+                style: const TextStyle(fontSize: 20),
+              ),
+              child: _StepLegBody(step: steps[i]),
             ),
-        ],
       ],
     );
   }
 }
 
-class _StepLegTile extends StatelessWidget {
-  const _StepLegTile({required this.step});
+class _TimelineEntry extends StatelessWidget {
+  const _TimelineEntry({
+    required this.isLast,
+    required this.isEmphasis,
+    required this.leading,
+    required this.child,
+  });
+
+  final bool isLast;
+  final bool isEmphasis;
+  final Widget leading;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final railColor = scheme.outlineVariant.withValues(alpha: 0.8);
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 28,
+            child: Column(
+              children: [
+                Container(
+                  width: ResultTokens.timelineDot,
+                  height: ResultTokens.timelineDot,
+                  margin: const EdgeInsets.only(top: 6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isEmphasis ? scheme.primary : scheme.surface,
+                    border: Border.all(
+                      color: isEmphasis ? scheme.primary : railColor,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: ResultTokens.timelineRail,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      color: railColor,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: leading,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: isLast ? 0 : ResultTokens.spaceXl,
+              ),
+              child: child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepLegBody extends StatelessWidget {
+  const _StepLegBody({required this.step});
 
   final JourneyStep step;
 
   @override
   Widget build(BuildContext context) {
-    final mode = step.mode ?? '';
-    return Row(
+    return Text(
+      step.instruction,
       key: Key('journey_step_leg_${step.instruction}'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(modeEmoji(mode), style: const TextStyle(fontSize: 22)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            step.instruction,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ),
-      ],
+      style: ResultTokens.stepTitle(context),
     );
   }
 }
 
-class _TransferTile extends StatelessWidget {
-  const _TransferTile({required this.step});
+class _TransferBody extends StatelessWidget {
+  const _TransferBody({required this.step});
 
   final JourneyStep step;
 
@@ -143,18 +204,17 @@ class _TransferTile extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: scheme.outlineVariant),
+        color: ResultTokens.surfaceMuted(scheme),
+        borderRadius: BorderRadius.circular(ResultTokens.radiusRow),
+        border: Border.all(color: ResultTokens.hairline(scheme)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'CHANGE HERE',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
+            'Change here',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
                   color: scheme.primary,
                 ),
           ),
@@ -164,24 +224,17 @@ class _TransferTile extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               location,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: ResultTokens.stepTitle(context),
             ),
           ],
           if (modeLine.isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(
-              modeLine,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-            ),
+            Text(modeLine, style: ResultTokens.stepMeta(context)),
           ],
           const SizedBox(height: 4),
           Text(
             step.instruction,
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: ResultTokens.explanation(context),
           ),
         ],
       ),
@@ -189,26 +242,25 @@ class _TransferTile extends StatelessWidget {
   }
 }
 
-class _LegTile extends StatelessWidget {
-  const _LegTile({required this.leg, required this.isLast});
+class _LegBody extends StatelessWidget {
+  const _LegBody({required this.leg, required this.isLast});
 
   final JourneyLeg leg;
   final bool isLast;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final metrics = <String>[
       if (legDurationLabel(leg) != null) legDurationLabel(leg)!,
       if (legDistanceLabel(leg) != null) legDistanceLabel(leg)!,
       if (legCostLabel(leg) != null) legCostLabel(leg)!,
     ];
 
-    var title = '${modeEmoji(leg.mode)} ${modeLabel(leg.mode)}';
+    var title = modeLabel(leg.mode);
     if (isLast &&
         (leg.mode.toLowerCase() == 'walk' ||
             leg.mode.toLowerCase() == 'walking')) {
-      title = '${modeEmoji(leg.mode)} Walk to destination';
+      title = 'Walk to destination';
     }
 
     final detail = <String>[
@@ -220,36 +272,14 @@ class _LegTile extends StatelessWidget {
         leg.routeId!,
     ];
 
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(modeEmoji(leg.mode), style: const TextStyle(fontSize: 22)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              if (detail.isNotEmpty)
-                Text(
-                  detail.join(' · '),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-              if (metrics.isNotEmpty)
-                Text(
-                  metrics.join(' · '),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
-          ),
-        ),
+        Text(title, style: ResultTokens.stepTitle(context)),
+        if (detail.isNotEmpty)
+          Text(detail.join(' · '), style: ResultTokens.stepMeta(context)),
+        if (metrics.isNotEmpty)
+          Text(metrics.join(' · '), style: ResultTokens.stepMeta(context)),
       ],
     );
   }
