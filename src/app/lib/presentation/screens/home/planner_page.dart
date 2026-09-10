@@ -169,7 +169,7 @@ class _PlannerPageState extends State<PlannerPage> {
     final base = AppConfig.normalizeBaseUrl(_baseUrl.text);
     if (base.isEmpty) {
       provider.setConfigurationError(
-        "Couldn't reach Commute Agent.",
+        "Couldn't reach GoWise.",
         'Set API base URL (or pass --dart-define=API_BASE_URL=...).',
       );
       return;
@@ -245,7 +245,7 @@ class _PlannerPageState extends State<PlannerPage> {
                 ),
                 children: [
                   Text(
-                    'Commute Agent',
+                    'GoWise',
                     key: const Key('planner_header'),
                     style: PlannerTokens.brandTitle(context),
                   ),

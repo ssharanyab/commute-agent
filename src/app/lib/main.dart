@@ -30,7 +30,7 @@ class CommuteAgentApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => CommuteProvider(),
       child: MaterialApp(
-        title: 'Patchamomma Commute',
+        title: 'GoWise',
         debugShowCheckedModeBanner: false,
         
         theme: base.copyWith(

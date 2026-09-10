@@ -636,9 +636,9 @@ class _ReplanBanner extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               changed
-                  ? 'Commute Agent found a better option based on the '
+                  ? 'GoWise found a better option based on the '
                       'updated conditions.'
-                  : 'Commute Agent checked again — your current plan still fits.',
+                  : 'GoWise checked again — your current plan still fits.',
               style: ResultTokens.explanation(context),
             ),
             if (safeReplanExplanation(replan.explanation) != null) ...[
@@ -695,7 +695,7 @@ class _ReplanSheetState extends State<_ReplanSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tell Commute Agent what changed and it will re-evaluate.',
+              'Tell GoWise what changed and it will re-evaluate.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             SwitchListTile(

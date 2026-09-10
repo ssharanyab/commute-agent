@@ -629,7 +629,7 @@ void main() {
         await tester.binding.setSurfaceSize(null);
       });
       await tester.pumpWidget(_wrap(const PlannerPage()));
-      expect(find.text('Commute Agent'), findsOneWidget);
+      expect(find.text('GoWise'), findsOneWidget);
       expect(find.text('Plan your journey'), findsOneWidget);
       expect(
         find.text("I'll compose the best way to get there."),

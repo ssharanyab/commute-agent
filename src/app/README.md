@@ -1,4 +1,4 @@
-# Patchamomma Commute Agent — Flutter MVP (Android / iOS)
+# GoWise — Flutter MVP (Android / iOS)
 
 Minimal UI for `POST /plan` and `POST /replan` against the FastAPI backend.
 

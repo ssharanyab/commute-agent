@@ -4,7 +4,7 @@ import '../../domain/entities/route_category.dart';
 
 /// Neutral summary when no safe, data-grounded copy is available.
 const String kDefaultWhySummary =
-    'Commute Agent selected this journey because it best matches your preferences.';
+    'GoWise selected this journey because it best matches your preferences.';
 
 /// User-facing "Why this?" content — never includes debug/engine internals.
 class UserFacingExplanation {

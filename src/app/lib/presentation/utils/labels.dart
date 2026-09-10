@@ -150,7 +150,7 @@ String agentExplanationOrFallback(String? explanation) {
   // Kept for callers that only have raw prose — strips technical backend copy.
   final text = (explanation ?? '').trim();
   if (text.isEmpty) {
-    return 'Commute Agent selected this journey because it best matches '
+    return 'GoWise selected this journey because it best matches '
         'your preferences.';
   }
   final lower = text.toLowerCase();
@@ -166,12 +166,12 @@ String agentExplanationOrFallback(String? explanation) {
   ];
   for (final m in technical) {
     if (lower.contains(m)) {
-      return 'Commute Agent selected this journey because it best matches '
+      return 'GoWise selected this journey because it best matches '
           'your preferences.';
     }
   }
   if (RegExp(r'\bj_[a-z0-9]{4,}\b', caseSensitive: false).hasMatch(text)) {
-    return 'Commute Agent selected this journey because it best matches '
+    return 'GoWise selected this journey because it best matches '
         'your preferences.';
   }
   return text;

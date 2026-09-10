@@ -60,7 +60,7 @@ if (mapsApiKey.isEmpty()) {
 }
 
 android {
-    namespace = "com.patchamomma.commute_agent"
+    namespace = "com.ssharanyab.gowise"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -74,7 +74,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.patchamomma.commute_agent"
+        applicationId = "com.ssharanyab.gowise"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
