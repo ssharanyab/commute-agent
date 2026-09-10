@@ -12,12 +12,15 @@ Future<void> main() async {
   final base = AppConfig.normalizeBaseUrl(
     AppConfig.apiBaseUrlFromDefine.isNotEmpty
         ? AppConfig.apiBaseUrlFromDefine
-        : (Platform.environment['API_BASE_URL'] ?? ''),
+        : (Platform.environment['API_BASE_URL']?.trim().isNotEmpty == true
+              ? Platform.environment['API_BASE_URL']!
+              : AppConfig.initialApiBaseUrl),
   );
   if (base.isEmpty) {
     stderr.writeln('API_BASE_URL required via --dart-define or env');
     exit(2);
   }
+  stdout.writeln('Using API base: $base');
 
   final client = CommuteRemoteDataSource(baseUrl: base);
   try {

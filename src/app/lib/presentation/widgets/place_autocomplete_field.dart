@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/config/app_config.dart';
 import '../../data/places_api_client.dart';
 
 /// Origin/destination field with Bengaluru Places autocomplete via backend proxy.
@@ -37,17 +38,39 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   Timer? _blurClear;
   List<PlaceSuggestion> _suggestions = const [];
   bool _loading = false;
+  String? _lastError;
   /// After a pick, ignore autocomplete until the user edits away from this text.
   /// (One-shot suppress fails when TextEditingController notifies more than once.)
   String? _committedText;
   /// Bumps on select / clear so in-flight autocomplete cannot reopen the panel.
   int _searchEpoch = 0;
+  bool _warmStarted = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onTextChanged);
     _focus.addListener(_onFocusChanged);
+    _warmBackend();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlaceAutocompleteField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.baseUrl.trim() != widget.baseUrl.trim()) {
+      _warmStarted = false;
+      _lastError = null;
+      _client.abortInFlight();
+      _warmBackend();
+    }
+  }
+
+  void _warmBackend() {
+    final base = widget.baseUrl.trim();
+    if (_warmStarted || base.isEmpty) return;
+    _warmStarted = true;
+    // Fire-and-forget; autocomplete must not wait on this.
+    unawaited(_client.warmUp(base));
   }
 
   @override
@@ -57,6 +80,7 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     widget.controller.removeListener(_onTextChanged);
     _focus.removeListener(_onFocusChanged);
     _focus.dispose();
+    _client.close();
     super.dispose();
   }
 
@@ -88,7 +112,8 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
       widget.onPlaceResolved(null);
     }
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 320), _search);
+    // Slightly longer debounce so rapid typing doesn't stack cold-start GETs.
+    _debounce = Timer(const Duration(milliseconds: 450), _search);
   }
 
   Future<void> _search() async {
@@ -96,23 +121,58 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     final q = widget.controller.text.trim();
     final base = widget.baseUrl.trim();
     if (q.length < 2 || base.isEmpty) {
-      if (mounted) setState(() => _suggestions = const []);
+      debugPrint(
+        '[PlacesField:${widget.label}] skip q="$q" baseEmpty=${base.isEmpty}',
+      );
+      if (mounted) {
+        setState(() {
+          _suggestions = const [];
+          _lastError = null;
+        });
+      }
       return;
     }
+    // Drop any hung prior GET before starting a new one.
+    _client.abortInFlight();
     final epoch = ++_searchEpoch;
-    setState(() => _loading = true);
+    debugPrint('[PlacesField:${widget.label}] search q="$q" base=$base');
+    setState(() {
+      _loading = true;
+      _lastError = null;
+    });
     try {
       final results = await _client.autocomplete(baseUrl: base, query: q);
-      if (!mounted || epoch != _searchEpoch || _committedText != null) return;
+      if (!mounted || epoch != _searchEpoch || _committedText != null) {
+        debugPrint(
+          '[PlacesField:${widget.label}] stale result ignored '
+          'mounted=$mounted epochOk=${epoch == _searchEpoch} '
+          'committed=${_committedText != null}',
+        );
+        return;
+      }
+      debugPrint(
+        '[PlacesField:${widget.label}] got ${results.length} suggestions',
+      );
       setState(() {
         _suggestions = results;
         _loading = false;
+        _lastError = results.isEmpty
+            ? 'No places found. Keep typing or check the API URL.'
+            : null;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[PlacesField:${widget.label}] search failed: $e');
       if (!mounted || epoch != _searchEpoch || _committedText != null) return;
+      final timedOut = e.toString().contains('TimeoutException');
+      final localHint = AppConfig.defaultLocalBaseUrlForPlatform();
       setState(() {
         _suggestions = const [];
         _loading = false;
+        _lastError = timedOut
+            ? 'Places timed out reaching backend. '
+                'Device may not reach Cloud Run — set Advanced → API base URL '
+                'to $localHint (with local uvicorn).'
+            : 'Places request failed. Check network / API base URL.';
       });
     }
   }
@@ -121,9 +181,11 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     // Close immediately on tap (before details round-trip).
     _debounce?.cancel();
     _searchEpoch++;
+    _client.abortInFlight();
     setState(() {
       _loading = true;
       _suggestions = const [];
+      _lastError = null;
     });
 
     try {
@@ -180,6 +242,16 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
           validator: widget.validator,
           textInputAction: TextInputAction.next,
         ),
+        if (_lastError != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _lastError!,
+            key: Key('places_error_${widget.label}'),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.error,
+                ),
+          ),
+        ],
         if (_suggestions.isNotEmpty)
           Material(
             elevation: 2,

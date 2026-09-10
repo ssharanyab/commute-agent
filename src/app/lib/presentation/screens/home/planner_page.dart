@@ -279,8 +279,33 @@ class _PlannerPageState extends State<PlannerPage> {
                               decoration: const InputDecoration(
                                 labelText: 'API base URL',
                                 helperText:
-                                    'Use 10.0.2.2:8000 on Android emulator',
+                                    'Default: Cloud Run. If Places times out on '
+                                    'emulator/device, switch to Local below '
+                                    '(uvicorn on host :8000).',
                               ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ActionChip(
+                                  key: const Key('api_base_cloud'),
+                                  label: const Text('Cloud Run'),
+                                  onPressed: () {
+                                    _baseUrl.text =
+                                        AppConfig.cloudRunDefaultBaseUrl;
+                                  },
+                                ),
+                                ActionChip(
+                                  key: const Key('api_base_local'),
+                                  label: const Text('Local (this device)'),
+                                  onPressed: () {
+                                    _baseUrl.text = AppConfig
+                                        .defaultLocalBaseUrlForPlatform();
+                                  },
+                                ),
+                              ],
                             ),
                           ],
                         ),

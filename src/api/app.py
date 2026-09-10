@@ -4,6 +4,7 @@ FastAPI application for the Commute Agent HTTP API.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException
@@ -11,8 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.schemas import PlanRequest, ReplanRequest
-from src.api.service import execute_plan, execute_replan
-from src.planner.models import InvalidCommuteRequest, InvalidReplanInput
+
+logger = logging.getLogger(__name__)
+
+# Heavy plan/replan imports are deferred inside handlers so Cloud Run cold
+# start can serve /health and /places/* without loading Journey Builder / DE.
 
 
 _CLIENT_ERRORS = {
@@ -77,21 +81,30 @@ def create_app() -> FastAPI:
         """Bengaluru-biased Places Autocomplete proxy (API key stays server-side)."""
         from src.mobility.geocoding import places_autocomplete
 
-        suggestions, err = places_autocomplete(q, limit=min(max(limit, 1), 10))
-        return {
+        capped = min(max(limit, 1), 10)
+        logger.info("GET /places/autocomplete q=%r limit=%s", q, capped)
+        suggestions, err = places_autocomplete(q, limit=capped)
+        payload = {
             "ok": err is None,
             "query": q,
             "suggestions": [s.to_dict() for s in suggestions],
             "error": err,
             "configured": err != "missing_api_key",
         }
+        logger.info(
+            "GET /places/autocomplete done q=%r ok=%s error=%s count=%s configured=%s",
+            q,
+            payload["ok"],
+            err,
+            len(suggestions),
+            payload["configured"],
+        )
+        return payload
 
     @app.get("/places/details")
     def places_details_endpoint(place_id: str = "") -> Dict[str, Any]:
         """Resolve a Places place_id to lat/lon (+ optional network-node match)."""
         from src.mobility.geocoding import place_details
-        from src.network.endpoint_resolve import match_place_to_network_node
-        from src.api.service import default_mobility_repository
 
         details, err = place_details(place_id)
         if details is None:
@@ -104,8 +117,18 @@ def create_app() -> FastAPI:
             }
         place = details.to_dict()
         network_node = None
-        repo = default_mobility_repository()
-        if repo is not None:
+        # Network snap is optional — keep Places details usable even if repo import is slow.
+        try:
+            from src.network.endpoint_resolve import match_place_to_network_node
+            from src.api.service import default_mobility_repository
+
+            repo = default_mobility_repository()
+        except Exception as exc:  # pragma: no cover - defensive for slim cold path
+            logger.warning("places_details network match unavailable: %s", type(exc).__name__)
+            repo = None
+            match_place_to_network_node = None  # type: ignore[assignment]
+
+        if repo is not None and match_place_to_network_node is not None:
             # Conservative: proximity-only snap when Places types unavailable.
             # Require very tight distance; Flutter may still send kind=place.
             types = list(getattr(details, "types", None) or [])
@@ -148,6 +171,9 @@ def create_app() -> FastAPI:
 
     @app.post("/plan")
     def plan(body: PlanRequest) -> JSONResponse:
+        from src.api.service import execute_plan
+        from src.planner.models import InvalidCommuteRequest
+
         try:
             payload = execute_plan(body)
         except InvalidCommuteRequest as exc:
@@ -159,6 +185,9 @@ def create_app() -> FastAPI:
 
     @app.post("/replan")
     def replan(body: ReplanRequest) -> JSONResponse:
+        from src.api.service import execute_replan
+        from src.planner.models import InvalidCommuteRequest, InvalidReplanInput
+
         try:
             payload = execute_replan(body)
         except InvalidCommuteRequest as exc:

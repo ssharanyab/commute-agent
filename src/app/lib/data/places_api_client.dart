@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Place suggestion from backend Places Autocomplete proxy.
@@ -138,9 +139,43 @@ class ResolvedPlace {
 
 /// HTTP client for `/places/autocomplete` and `/places/details`.
 class PlacesApiClient {
-  PlacesApiClient({http.Client? httpClient}) : _http = httpClient ?? http.Client();
+  PlacesApiClient({
+    http.Client? httpClient,
+    Duration? requestTimeout,
+  })  : _ownsClient = httpClient == null,
+        _timeout = requestTimeout ?? const Duration(seconds: 20),
+        _http = httpClient ?? http.Client();
 
-  final http.Client _http;
+  final bool _ownsClient;
+  final Duration _timeout;
+  http.Client _http;
+
+  /// Abort any in-flight request (e.g. hung Cloud Run cold-start) so the next
+  /// keystroke is not stuck behind a dead socket.
+  void abortInFlight() {
+    if (!_ownsClient) return;
+    try {
+      _http.close();
+    } catch (_) {}
+    _http = http.Client();
+    debugPrint('[Places] aborted in-flight HTTP client');
+  }
+
+  /// Best-effort wake of Cloud Run so the first autocomplete is less likely
+  /// to hit the cold-start wall.
+  Future<void> warmUp(String baseUrl) async {
+    final base = baseUrl.trim();
+    if (base.isEmpty) return;
+    final uri = Uri.parse('$base/health');
+    debugPrint('[Places] warmUp GET $uri');
+    try {
+      final res =
+          await _http.get(uri).timeout(const Duration(seconds: 12));
+      debugPrint('[Places] warmUp http=${res.statusCode}');
+    } catch (e) {
+      debugPrint('[Places] warmUp failed (non-fatal): $e');
+    }
+  }
 
   Future<List<PlaceSuggestion>> autocomplete({
     required String baseUrl,
@@ -148,26 +183,62 @@ class PlacesApiClient {
     int limit = 6,
   }) async {
     final q = query.trim();
-    if (q.length < 2) return const [];
+    if (q.length < 2) {
+      debugPrint('[Places] autocomplete skip q too short len=${q.length}');
+      return const [];
+    }
     final uri = Uri.parse('$baseUrl/places/autocomplete').replace(
       queryParameters: {
         'q': q,
         'limit': '$limit',
       },
     );
-    final res = await _http.get(uri).timeout(const Duration(seconds: 8));
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      return const [];
+    final sw = Stopwatch()..start();
+    debugPrint('[Places] GET $uri (timeout=${_timeout.inSeconds}s)');
+    try {
+      final res = await _http.get(uri).timeout(_timeout);
+      debugPrint(
+        '[Places] autocomplete http=${res.statusCode} '
+        'bytes=${res.bodyBytes.length} elapsedMs=${sw.elapsedMilliseconds}',
+      );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        debugPrint(
+          '[Places] autocomplete HTTP error body='
+          '${res.body.length > 400 ? '${res.body.substring(0, 400)}…' : res.body}',
+        );
+        return const [];
+      }
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) {
+        debugPrint('[Places] autocomplete parse: body not a Map');
+        return const [];
+      }
+      final body = Map<String, dynamic>.from(decoded);
+      final ok = body['ok'] == true;
+      final err = body['error'];
+      final configured = body['configured'];
+      final raw = body['suggestions'];
+      final count = raw is List ? raw.length : 0;
+      debugPrint(
+        '[Places] autocomplete ok=$ok error=$err configured=$configured '
+        'suggestions=$count elapsedMs=${sw.elapsedMilliseconds}',
+      );
+      if (!ok || err != null) {
+        debugPrint('[Places] autocomplete backend error detail: $err');
+      }
+      if (raw is! List) return const [];
+      return [
+        for (final item in raw)
+          if (item is Map)
+            PlaceSuggestion.fromJson(Map<String, dynamic>.from(item)),
+      ];
+    } catch (e, st) {
+      debugPrint(
+        '[Places] autocomplete exception after ${sw.elapsedMilliseconds}ms: $e',
+      );
+      debugPrint('[Places] $st');
+      rethrow;
     }
-    final body = jsonDecode(res.body);
-    if (body is! Map) return const [];
-    final raw = body['suggestions'];
-    if (raw is! List) return const [];
-    return [
-      for (final item in raw)
-        if (item is Map)
-          PlaceSuggestion.fromJson(Map<String, dynamic>.from(item)),
-    ];
   }
 
   Future<ResolvedPlace?> details({
@@ -179,7 +250,8 @@ class PlacesApiClient {
     final uri = Uri.parse('$baseUrl/places/details').replace(
       queryParameters: {'place_id': id},
     );
-    final res = await _http.get(uri).timeout(const Duration(seconds: 8));
+    debugPrint('[Places] GET $uri (timeout=${_timeout.inSeconds}s)');
+    final res = await _http.get(uri).timeout(_timeout);
     if (res.statusCode < 200 || res.statusCode >= 300) return null;
     final body = jsonDecode(res.body);
     if (body is! Map || body['ok'] != true) return null;
@@ -192,5 +264,12 @@ class PlacesApiClient {
           ? Map<String, dynamic>.from(networkNode)
           : null,
     );
+  }
+
+  void close() {
+    if (!_ownsClient) return;
+    try {
+      _http.close();
+    } catch (_) {}
   }
 }

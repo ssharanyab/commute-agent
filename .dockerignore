@@ -1,0 +1,49 @@
+# Build context exclusions for Docker / Cloud Run source deploys.
+.git
+.gitignore
+.gcloudignore
+.venv
+venv
+env
+ENV
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.tox
+.nox
+.idea
+.vscode
+*.swp
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Local notebooks / demos / diagnostics (not required at runtime)
+notebooks
+scripts
+tests
+*.ipynb
+agent-transcripts
+
+# Flutter / mobile app (not needed for backend Cloud Run)
+src/app
+
+# Large / local-only data not used by the API process
+data/raw
+data/processed
+data/mobility_network/**/gtfs
+data/mobility_network/**/*.zip
+data/mobility_network/**/failed
+.tmp_bmrcl_gtfs
+.tmp_bmtc_gtfs
+
+# Docs / misc
+README.md
+*.md
+!data/mobility_network/**/README.md

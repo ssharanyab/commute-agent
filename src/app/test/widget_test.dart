@@ -123,11 +123,15 @@ void main() {
     );
   });
 
-  test('initialApiBaseUrl falls back to platform local default when define empty', () {
+  test('initialApiBaseUrl defaults to Cloud Run when define empty', () {
     if (AppConfig.apiBaseUrlFromDefine.trim().isEmpty) {
       expect(
         AppConfig.initialApiBaseUrl,
-        AppConfig.defaultLocalBaseUrlForPlatform(),
+        AppConfig.cloudRunDefaultBaseUrl,
+      );
+      expect(
+        AppConfig.initialApiBaseUrl,
+        'https://commute-agent-242496011822.asia-south1.run.app',
       );
     } else {
       expect(

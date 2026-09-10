@@ -237,6 +237,23 @@ def _places_error_category(resp: Any, payload: Optional[Dict[str, Any]]) -> str:
     return "places_error"
 
 
+def _places_error_debug(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Safe Google error fields for logs/responses (never includes API key)."""
+    if not isinstance(payload, dict):
+        return {}
+    err = payload.get("error")
+    if not isinstance(err, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    if err.get("status") is not None:
+        out["google_status"] = str(err.get("status"))
+    if err.get("message") is not None:
+        out["google_message"] = str(err.get("message"))[:400]
+    if err.get("code") is not None:
+        out["google_code"] = err.get("code")
+    return out
+
+
 def places_autocomplete(
     input_text: str,
     *,
@@ -251,10 +268,12 @@ def places_autocomplete(
     """
     text = (input_text or "").strip()
     if len(text) < 2:
+        logger.debug("places_autocomplete skip: query too short input=%r", text)
         return [], None
     try:
         key = _api_key()
     except MissingAPIKeyError:
+        logger.warning("places_autocomplete missing_api_key input=%r", text)
         return [], "missing_api_key"
 
     body = {
@@ -271,6 +290,12 @@ def places_autocomplete(
             }
         },
     }
+    logger.info(
+        "places_autocomplete request input=%r limit=%s key_configured=%s",
+        text,
+        limit,
+        True,
+    )
     http = session or requests
     try:
         resp = http.post(
@@ -286,15 +311,17 @@ def places_autocomplete(
             payload = {}
         if getattr(resp, "status_code", 200) >= 400:
             cat = _places_error_category(resp, payload if isinstance(payload, dict) else None)
-            logger.info(
-                "places_autocomplete failed input=%r error_category=%s http=%s",
+            dbg = _places_error_debug(payload if isinstance(payload, dict) else None)
+            logger.warning(
+                "places_autocomplete failed input=%r error_category=%s http=%s google=%s",
                 text,
                 cat,
                 resp.status_code,
+                dbg,
             )
             return [], cat
     except Exception as exc:
-        logger.info(
+        logger.warning(
             "places_autocomplete failed input=%r error_category=http_error detail=%s",
             text,
             type(exc).__name__,
@@ -302,6 +329,7 @@ def places_autocomplete(
         return [], "http_error"
 
     if not isinstance(payload, dict):
+        logger.warning("places_autocomplete parse_error input=%r", text)
         return [], "parse_error"
 
     out: List[PlaceSuggestion] = []
@@ -346,6 +374,13 @@ def places_autocomplete(
         )
         if len(out) >= max(1, limit):
             break
+    raw_count = len(payload.get("suggestions") or [])
+    logger.info(
+        "places_autocomplete ok input=%r raw_suggestions=%s returned=%s",
+        text,
+        raw_count,
+        len(out),
+    )
     return out, None
 
 

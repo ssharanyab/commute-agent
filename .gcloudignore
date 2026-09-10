@@ -1,0 +1,43 @@
+# Cloud Build / `gcloud run deploy --source` upload filter.
+# IMPORTANT: Unlike .gitignore, this MUST include runtime mobility snapshots,
+# active.json pointers, and historical model joblibs.
+
+.git
+.venv
+venv
+env
+ENV
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.idea
+.vscode
+.DS_Store
+.env
+.env.*
+
+# Not required for the Cloud Run API image
+notebooks
+scripts
+tests
+*.ipynb
+src/app
+data/raw
+data/processed
+data/mobility_network/**/gtfs
+data/mobility_network/**/*.zip
+data/mobility_network/**/failed
+.tmp_bmrcl_gtfs
+.tmp_bmtc_gtfs
+
+# Keep (do NOT ignore):
+#   data/mobility_network/**/active.json
+#   data/mobility_network/**/snapshots/
+#   data/mobility_network/**/seed/
+#   data/mobility_network/bmrcl/fares/
+#   models/*.joblib
